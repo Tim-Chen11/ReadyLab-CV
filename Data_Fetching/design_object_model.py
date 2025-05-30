@@ -1,15 +1,15 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 @dataclass
 class DesignObject:
-    title: str
-    year: Optional[int] = None
-    product_type: Optional[str] = None
-    dimensions: Optional[str] = None
-    manufacturer: Optional[str] = None
-    designer: Optional[str] = None
+    name: str
+    year: int
+    classification: str
+    dimension: str
+    makers: List[str]
+    image_urls: List[str]
+    country: str
     price: Optional[str] = None           # Not available in API
     popularity: Optional[str] = None      # Not available in API
     source: Optional[str] = None
-    image_url: Optional[str] = None

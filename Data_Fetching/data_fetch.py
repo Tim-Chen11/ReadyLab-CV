@@ -1,11 +1,7 @@
 from typing import Optional, List
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
-from .design_object_model import DesignObject
-
-BASE_IMG_URL = "https://images.cooperhewitt.org/"
-transport = RequestsHTTPTransport(url="https://api.cooperhewitt.org/")
-client = Client(transport=transport, fetch_schema_from_transport=True)
+from Data_Fetching.design_object_model import DesignObject
 
 # --- parameterized query ---
 # Query should depened on the the following parameters:
@@ -21,126 +17,166 @@ client = Client(transport=transport, fetch_schema_from_transport=True)
 # - Price (not available in API, stub)
 # - Popularity (not available in API, stub)
 # - source (cooperhewitt)
-# QUERY = gql("""
-# query GetObjects(
-#   $type: String!,
-#   $from: Int!,
-#   $to:   Int!,
-#   $size: Int! = 10,
-#   $page: Int! = 0
-# ) {
-#   object(
-#     name: $type,
-#     yearRange: { from: $from, to: $to },
-#     hasImages: true,
-#     size: $size,
-#     page: $page
-#   ) {
-#     summary
-#     date
-#     classification
-#     measurements
-#     maker          { summary }       
-#     legal
-#     multimedia
-#   }
-# }
-# """)
+# --- basic setting ---
+transport = RequestsHTTPTransport(
+    url="https://api.cooperhewitt.org/",
+    headers={
+        "User-Agent": "Mozilla/5.0"  # helps avoid bot filtering
+    },
+    retries=3,
+    verify=True,
+)
+client = Client(transport=transport, fetch_schema_from_transport=True)
 
 
-# def fetch_design_objects(
-#     object_type: str,
-#     year_from:    int,
-#     year_to:      int,
-#     size:         int = 10,
-#     page:         int = 0
-# ) -> List[DesignObject]:
-#     variables = {
-#         "type": object_type,
-#         "from": year_from,
-#         "to":   year_to,
-#         "size": size,
-#         "page": page
-#     }
-#     resp  = client.execute(QUERY, variable_values=variables)
-#     items = resp["object"]
-#     results: List[DesignObject] = []
+def normalize_country(raw_country: str) -> str:
+    raw_country_lower = raw_country.lower()
+    if "canada" in raw_country_lower:
+        return "Canada"
+    if "usa" in raw_country_lower or "u.s.a." in raw_country_lower or "united states" in raw_country_lower:
+        return "USA"
+    if "probably usa" in raw_country_lower or "possibly usa" in raw_country_lower:
+        return "USA"
+    if "usa or" in raw_country_lower:
+        return "USA"
+    return None
 
-#     for itm in items:
-#         # extract core fields
-#         title        = itm["summary"]["title"]
-#         year         = int(itm["date"][0]["value"]) if itm.get("date") else None
-#         product_type = itm["classification"][0]["summary"]["title"] if itm.get("classification") else None
-#         dimensions   = itm["measurements"]["dimensions"][0]["value"] if itm.get("measurements") else None
-#         manufacturer = itm["maker"][0]["summary"]["title"] if itm.get("maker") else None
-#         source       = itm.get("legal", {}).get("credit")
+def fetch_design_objects(
+        client: Client,
+        department: str,
+        year: int,
+        country: str,
+        size: int = 10,
+        page: int = 0
+) -> List[DesignObject]:
+    """
+    Fetches a page of design objects from the Cooper Hewitt GraphQL API
+    and returns them as a list of DesignObject instances.
 
-#         # build full image URL
-#         img_url = None
-#         if itm.get("multimedia"):
-#             loc = itm["multimedia"][0]["preview"].get("location")
-#             if loc:
-#                 img_url = BASE_IMG_URL + loc
+    Args:
+        client: An initialized gql.Client instance.
+        product_type: The 'name' filter for the object query (e.g., "chair").
+        year: The year filter for the object query.
+        size: Number of items to fetch per page.
+        page: Zero-based page index.
 
-#         results.append(DesignObject(
-#             title        = title,
-#             year         = year,
-#             product_type = product_type,
-#             dimensions   = dimensions,
-#             manufacturer = manufacturer,
-#             designer     = None,
-#             price        = None,
-#             popularity   = None,
-#             source       = source,
-#             image_url    = img_url
-#         ))
+    Returns:
+        A list of DesignObject instances with extracted fields.
+    """
+    variables = {
+        "department": department,
+        "year": year,
+        "country": country,
+        "size": size,
+        "page": page
+    }
 
-#     return results
+    QUERY = gql("""
+    query GetObjects(
+      $department: String!,
+      $year: Int!,
+      $country: String!,
+      $size: Int!,
+      $page: Int!
+    ) {
+      object(
+        department: $department,
+        year: $year,
+        country: $country,
+        hasImages: true,
+        size: $size,
+        page: $page
+      ) {
+        summary
+        date
+        classification
+        measurements
+        maker { summary }
+        multimedia
+        geography
+      }
+    }
+    """)
+    resp = client.execute(QUERY, variable_values=variables)
 
-# # Fetch one chair from 1960
-# one_chair = fetch_design_objects("chair", 1960, 1960, size=1, page=0)
-# print(one_chair)
+    size_order = ("large", "original", "preview", "zoom")
+    results: List[DesignObject] = []
+    for raw in resp.get("object", []):
 
-from gql import gql, Client
-from gql.transport.requests import RequestsHTTPTransport
+        geography = raw.get("geography") or {}
+        country_obj = geography.get("country") or {}
+        raw_country = country_obj.get("value", "")
+        norm_country = normalize_country(raw_country)
+        if norm_country is None:
+            continue
+
+        urls: List[str] = []
+        for media in raw.get("multimedia") or []:
+            if media.get("type") == "image":
+                for key in size_order:
+                    if key in media and media[key] and media[key].get("url"):
+                        urls.append(media[key]["url"])
+                        break
+
+        classifications = raw.get("classification") or [{}]
+        classification_summary = classifications[0].get("summary") or {}
+        classification = classification_summary.get("title", "")
+
+        measurements = raw.get("measurements") or {}
+        dimensions = measurements.get("dimensions") or [{}]
+        dimension = dimensions[0].get("value", "")
+
+        makers_list = raw.get("maker") or []
+        makers = [
+            m.get("summary", {}).get("title", "")
+            for m in makers_list
+        ]
+
+        obj = DesignObject(
+            name=raw.get("summary", {}).get("title", ""),
+            year=year,
+            classification=classification,
+            dimension=dimension,
+            makers=makers,
+            image_urls=urls,
+            country="USA" if "USA" in country else "Canada",
+            source="https://apidocs.cooperhewitt.org/"
+        )
+        results.append(obj)
+
+    return results
 
 
 
-# ✅ Query using yearRange correctly
-QUERY = gql("""
-query GetObjects(
-  $type: String!,
-  $yearRange: YearRangeInput!,
-  $size: Int!,
-  $page: Int!
-) {
-  object(
-    name: $type,
-    yearRange: $yearRange,
-    hasImages: true,
-    size: $size,
-    page: $page
-  ) {
-    summary
-    date
-    classification
-    measurements
-    maker { summary }
-    legal
-    multimedia
-  }
-}
-""")
 
-# ✅ Pass yearRange as a variable object
-variables = {
-    "type": "chair",
-    "yearRange": {"from": 1960, "to": 1960},
-    "size": 1,
-    "page": 0
-}
+AMERICA_CANADA_COUNTRIES = [
+    "USA",
+    "U.S.A.",
+    "USA (silver)",
+    "USA or England",
+    "USA or Europe",
+    "United States",
+    "Puerto Rico",
+    "possibly USA",
+    "probably USA",
+    "Canada",
+]
+department = "Product Design and Decorative Arts"
+yearRange = range(1960, 2010)
+size = 100
+page = 0
 
-# Execute
-result = client.execute(QUERY, variable_values=variables)
-print(result)
+total_count = 0
 
+for year in yearRange:
+    year_count = 0  # per-year count
+
+    for country in AMERICA_CANADA_COUNTRIES:
+        results = fetch_design_objects(client, department, year, country, size, page)
+        count = len(results)
+        year_count += count
+        total_count += count
+
+    print(f"Year: {year}, Found: {year_count}")
+
+print(f"\nTotal objects found: {total_count}") #only 1388 items
