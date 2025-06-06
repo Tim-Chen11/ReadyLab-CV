@@ -43,22 +43,31 @@ def fetch_from_cooper_hewitt() -> int:
 
 
 def fetch_from_MoMA() -> int:
-    # Countries to consider for MoMA
-    USA = {
-        "American",
-        "American, born Eritrea",
-        "American, born Mexico.",
-        "Native American",
-    }   
-    CANADA = {
-        "Canadian",
-        "Canadian Inuit",
-        "Member of Wood Mountain Lakota First Nations",
-        "Oneida",
-        "Spirit Lake Dakota/Cheyenne River Lakota",
-    }
+    # Countries to consider for MoMA in Artworks.csv file
+    # No longer consider, as we do web scrap directly
+    # USA = {
+    #     "American",
+    #     "American, born Eritrea",
+    #     "American, born Mexico.",
+    #     "Native American",
+    # }
+    # CANADA = {
+    #     "Canadian",
+    #     "Canadian Inuit",
+    #     "Member of Wood Mountain Lakota First Nations",
+    #     "Oneida",
+    #     "Spirit Lake Dakota/Cheyenne River Lakota",
+    # }
+
+
 
     return 0
+
+def fetch_from_1stdibs() -> int:
+    AMERICA_CANADA_COUNTRIES = {
+        "american",
+        "canadian",
+    }
 
 
 

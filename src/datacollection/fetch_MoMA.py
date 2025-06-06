@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 import re
 
-###################################Part for fetching eligible nations#######################################################
+###################################Part for fetching testing - ignore#######################################################
 file_path = Path("data/raw/Artworks.csv")
 
 def normalize_nationality(raw: str) -> List[str]:
@@ -126,6 +126,7 @@ def fetch_mediums():
             print(f"{medium}: {count} items")
 
 #########################################################################################################
+
 from curl_cffi import requests
 from curl_cffi.requests import BrowserType
 import json, ssl, time, math, warnings, os, re
