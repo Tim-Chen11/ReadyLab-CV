@@ -5,125 +5,125 @@ from pathlib import Path
 import re
 
 ###################################Part for fetching testing - ignore#######################################################
-file_path = Path("data/raw/Artworks.csv")
-
-def normalize_nationality(raw: str) -> List[str]:
-    # extract all text inside parentheses
-    entries = re.findall(r"\((.*?)\)", raw)
-    # strip and remove empty entries
-    entries = [e.strip() for e in entries if e.strip()]
-    return entries
-
-def extract_nationalities(csv_path: str):
-    nationalities = set()
-
-    with open(csv_path, mode='r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            raw_nat = row.get("Nationality", "").strip()
-            if not raw_nat:
-                continue
-
-            extracted = normalize_nationality(raw_nat)
-            nationalities.update(extracted)
-
-    return sorted(nationalities)
-
-def fetch_nationalities():
-    nationalities = extract_nationalities(file_path)
-
-    print(f"Found {len(nationalities)} unique nationalities:\n")
-    for nat in nationalities:
-        print(nat)
-
-from collections import defaultdict
-def count_classifications(csv_path: str):
-    classification_counts = defaultdict(int)
-    total_items = 0
-
-    with open(csv_path, mode='r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            total_items += 1
-            classification = row.get("Classification", "").strip()
-            if classification:
-                classification_counts[classification] += 1
-
-    return total_items, classification_counts
-
-
-def fetch_classifications():
-    file_path = Path("data/raw/Artworks.csv")  # ✅ adjust path if needed
-
-    total_items, classification_counts = count_classifications(file_path)
-
-    print(f"Total items: {total_items}")
-    print(f"Found {len(classification_counts)} unique classifications:\n")
-
-    # Sort by count descending
-    sorted_counts = sorted(classification_counts.items(), key=lambda x: -x[1])
-
-    for classification, count in sorted_counts:
-        print(f"{classification}: {count} items")
-
-
-def extract_departments(csv_path: str):
-    departments = defaultdict(int)
-    total_items = 0
-
-    with open(csv_path, mode='r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            total_items += 1
-            department = row.get("Department", "").strip()
-            if department:
-                departments[department] += 1
-
-    return total_items, departments
-
-
-def fetch_departments():
-    file_path = Path("data/raw/Artworks.csv")  # ✅ your real path
-
-    total_items, departments = extract_departments(file_path)
-
-    print(f"Total items: {total_items}")
-    print(f"Found {len(departments)} unique departments:\n")
-
-    # Sort by count descending
-    sorted_counts = sorted(departments.items(), key=lambda x: -x[1])
-
-    for department, count in sorted_counts:
-        print(f"{department}: {count} items")
-
-def extract_mediums(csv_path: str):
-    mediums = defaultdict(int)
-    total_items = 0
-
-    with open(csv_path, mode='r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            total_items += 1
-            medium = row.get("Medium", "").strip()
-            if medium:
-                mediums[medium] += 1
-
-    return total_items, mediums
-
-def fetch_mediums():
-    file_path = Path("data/raw/Artworks.csv")  # ✅ your actual path here
-
-    total_items, mediums = extract_mediums(file_path)
-
-    print(f"Total items: {total_items}")
-    print(f"Found {len(mediums)} unique mediums:\n")
-
-    # Sort by count descending
-    sorted_counts = sorted(mediums.items(), key=lambda x: -x[1])
-
-    for medium, count in sorted_counts:
-        if count > 40:  # ✅ Only output mediums with more than 40 items
-            print(f"{medium}: {count} items")
+# file_path = Path("data/raw/Artworks.csv")
+#
+# def normalize_nationality(raw: str) -> List[str]:
+#     # extract all text inside parentheses
+#     entries = re.findall(r"\((.*?)\)", raw)
+#     # strip and remove empty entries
+#     entries = [e.strip() for e in entries if e.strip()]
+#     return entries
+#
+# def extract_nationalities(csv_path: str):
+#     nationalities = set()
+#
+#     with open(csv_path, mode='r', encoding='utf-8') as f:
+#         reader = csv.DictReader(f)
+#         for row in reader:
+#             raw_nat = row.get("Nationality", "").strip()
+#             if not raw_nat:
+#                 continue
+#
+#             extracted = normalize_nationality(raw_nat)
+#             nationalities.update(extracted)
+#
+#     return sorted(nationalities)
+#
+# def fetch_nationalities():
+#     nationalities = extract_nationalities(file_path)
+#
+#     print(f"Found {len(nationalities)} unique nationalities:\n")
+#     for nat in nationalities:
+#         print(nat)
+#
+# from collections import defaultdict
+# def count_classifications(csv_path: str):
+#     classification_counts = defaultdict(int)
+#     total_items = 0
+#
+#     with open(csv_path, mode='r', encoding='utf-8') as f:
+#         reader = csv.DictReader(f)
+#         for row in reader:
+#             total_items += 1
+#             classification = row.get("Classification", "").strip()
+#             if classification:
+#                 classification_counts[classification] += 1
+#
+#     return total_items, classification_counts
+#
+#
+# def fetch_classifications():
+#     file_path = Path("data/raw/Artworks.csv")  # ✅ adjust path if needed
+#
+#     total_items, classification_counts = count_classifications(file_path)
+#
+#     print(f"Total items: {total_items}")
+#     print(f"Found {len(classification_counts)} unique classifications:\n")
+#
+#     # Sort by count descending
+#     sorted_counts = sorted(classification_counts.items(), key=lambda x: -x[1])
+#
+#     for classification, count in sorted_counts:
+#         print(f"{classification}: {count} items")
+#
+#
+# def extract_departments(csv_path: str):
+#     departments = defaultdict(int)
+#     total_items = 0
+#
+#     with open(csv_path, mode='r', encoding='utf-8') as f:
+#         reader = csv.DictReader(f)
+#         for row in reader:
+#             total_items += 1
+#             department = row.get("Department", "").strip()
+#             if department:
+#                 departments[department] += 1
+#
+#     return total_items, departments
+#
+#
+# def fetch_departments():
+#     file_path = Path("data/raw/Artworks.csv")  # ✅ your real path
+#
+#     total_items, departments = extract_departments(file_path)
+#
+#     print(f"Total items: {total_items}")
+#     print(f"Found {len(departments)} unique departments:\n")
+#
+#     # Sort by count descending
+#     sorted_counts = sorted(departments.items(), key=lambda x: -x[1])
+#
+#     for department, count in sorted_counts:
+#         print(f"{department}: {count} items")
+#
+# def extract_mediums(csv_path: str):
+#     mediums = defaultdict(int)
+#     total_items = 0
+#
+#     with open(csv_path, mode='r', encoding='utf-8') as f:
+#         reader = csv.DictReader(f)
+#         for row in reader:
+#             total_items += 1
+#             medium = row.get("Medium", "").strip()
+#             if medium:
+#                 mediums[medium] += 1
+#
+#     return total_items, mediums
+#
+# def fetch_mediums():
+#     file_path = Path("data/raw/Artworks.csv")  # ✅ your actual path here
+#
+#     total_items, mediums = extract_mediums(file_path)
+#
+#     print(f"Total items: {total_items}")
+#     print(f"Found {len(mediums)} unique mediums:\n")
+#
+#     # Sort by count descending
+#     sorted_counts = sorted(mediums.items(), key=lambda x: -x[1])
+#
+#     for medium, count in sorted_counts:
+#         if count > 40:  # ✅ Only output mediums with more than 40 items
+#             print(f"{medium}: {count} items")
 
 #########################################################################################################
 
@@ -273,7 +273,7 @@ class DzSpider(object):
                 source="https://www.moma.org/",
             )
             objects.append(obj)
-            print(f"✔ {i}/{len(items)}  {obj}")
+            # print(f"✔ {i}/{len(items)}  {obj}")
 
         return objects
 

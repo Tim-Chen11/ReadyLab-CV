@@ -134,6 +134,44 @@ def fetch_design_objects(
             country="USA" if "USA" in country else "Canada",
             source="https://apidocs.cooperhewitt.org/"
         )
+        # print(obj)
         results.append(obj)
 
     return results
+
+
+if __name__ == '__main__':
+        # Countries to consider for Cooper Hewitt
+        AMERICA_CANADA_COUNTRIES = [
+            "USA",
+            "U.S.A.",
+            "USA (silver)",
+            "USA or England",
+            "USA or Europe",
+            "United States",
+            "Puerto Rico",
+            "possibly USA",
+            "probably USA",
+            "Canada",
+        ]
+        department = "Product Design and Decorative Arts"
+        yearRange = range(1960, 2010)
+        size = 100
+        page = 0
+
+        client = create_client()
+
+        total_count = 0
+
+        for year in yearRange:
+            year_count = 0
+
+            for country in AMERICA_CANADA_COUNTRIES:
+                results = fetch_design_objects(client, department, year, country, size, page)
+                count = len(results)
+                year_count += count
+                total_count += count
+
+            print(f"Year: {year}, Found: {year_count}")
+
+        print(f"\nTotal objects found: {total_count}")

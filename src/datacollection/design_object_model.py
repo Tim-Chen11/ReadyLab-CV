@@ -4,7 +4,7 @@ from typing import Optional, List
 @dataclass
 class DesignObject:
     name: str
-    year: int
+    year: str
     classification: str
     dimension: str
     makers: List[str]

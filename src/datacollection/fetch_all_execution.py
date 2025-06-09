@@ -64,26 +64,19 @@ def fetch_from_MoMA() -> int:
     return 0
 
 def fetch_from_1stdibs() -> int:
-    AMERICA_CANADA_COUNTRIES = {
-        "american",
-        "canadian",
+    urls_for_fetching = {
+        "https://www.1stdibs.com/furniture/?origin=american,canadian&per=1960s,1970s,1980s,1990s,21st-century-and-contemporary&sort=newest",
+        "https://www.1stdibs.com/jewelry/?origin=american,canadian&page=9&per=1960s,1970s,1980s,1990s,21st-century-and-contemporary&sort=newest",
+        "https://www.1stdibs.com/fashion/handbags-purses-bags/?origin=american,canadian&per=1960s,1970s,1980s,1990s,21st-century-and-contemporary&sort=newest",
+        "https://www.1stdibs.com/fashion/clothing/shoes/?origin=american,canadian&per=1960s,1970s,1980s,1990s,21st-century-and-contemporary&sort=newest",
+        "https://www.1stdibs.com/fashion/accessories/?origin=american,canadian&per=1960s,1970s,1980s,1990s,21st-century-and-contemporary&sort=newest",
     }
 
 
 
 
-import asyncio
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
-
-async def main():
-    async with AsyncWebCrawler() as crawler:
-        result = await crawler.arun(
-            url="https://www.nbcnews.com/business",
-        )
-        print(result.markdown[:300])  # Show the first 300 characters of extracted text
 
 if __name__ == "__main__":
-    asyncio.run(main())
 
 
 
