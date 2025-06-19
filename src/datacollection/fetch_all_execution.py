@@ -77,6 +77,6 @@ def fetch_from_1stdibs() -> int:
 
 
 if __name__ == "__main__":
-
+    print("Starting")
 
 
