@@ -543,6 +543,11 @@ from typing import Dict, List, Optional
 import time
 import json
 from urllib.parse import urljoin
+from pathlib import Path
+from dataclasses import dataclass
+import pandas as pd
+
+from src.datacollection.design_object_model import DesignObject
 
 
 class MobilePhoneMuseumScraper:
@@ -704,6 +709,18 @@ class MobilePhoneMuseumScraper:
             print(f"Error scraping {url}: {str(e)}")
             return None
 
+    def extract_year_from_announced(self, announced: str) -> str:
+        """Extract year from announced date string."""
+        if not announced:
+            return "Unknown"
+
+        # Look for 4-digit year pattern
+        year_match = re.search(r'\b(19\d{2}|20\d{2})\b', announced)
+        if year_match:
+            return year_match.group(1)
+
+        return "Unknown"
+
     def scrape_multiple_phones(self, urls: List[str], delay: float = 1.0) -> List[Dict]:
         """
         Scrape multiple phone detail pages with delay between requests.
@@ -733,11 +750,69 @@ class MobilePhoneMuseumScraper:
             else:
                 print(f"  ✗ Failed to scrape")
 
-            # Be respectful with delays
-            if i < total:
-                time.sleep(delay)
 
         return results
+
+    def convert_to_design_objects(self, scraped_data: List[Dict]) -> List[DesignObject]:
+        """Convert scraped data to DesignObject format."""
+        design_objects = []
+
+        for data in scraped_data:
+            if data and data.get('images'):  # Only process if images exist
+                year = self.extract_year_from_announced(data['announced'])
+
+                # Check if year is valid and <= 2010
+                try:
+                    year_int = int(year)
+                    if year_int > 2010:
+                        continue  # Skip phones after 2010
+                except ValueError:
+                    # Skip if year is not a valid number (e.g., "Unknown")
+                    continue
+
+                design_obj = DesignObject(
+                    name=data['model'] or "Unknown Model",
+                    year=year,
+                    classification="Phone",
+                    dimension=data['weight'] or "Unknown",
+                    makers=[data['brand']] if data['brand'] else ["Unknown"],
+                    image_urls=data['images'],
+                    country="USA",
+                    price=None,
+                    popularity=None,
+                    source="https://www.mobilephonemuseum.com/"
+                )
+                design_objects.append(design_obj)
+
+        return design_objects
+
+    def save_to_xlsx(self, design_objects: List[DesignObject], output_path: Path):
+        """Save DesignObject list to XLSX file with ||| separated lists."""
+        if not design_objects:
+            print("No data to save")
+            return
+
+        # Convert to dictionaries for DataFrame
+        rows = []
+        for obj in design_objects:
+            row = {
+                'name': obj.name,
+                'year': obj.year,
+                'classification': obj.classification,
+                'dimension': obj.dimension,
+                'makers': '|||'.join(obj.makers),
+                'image_urls': '|||'.join(obj.image_urls),
+                'country': obj.country,
+                'price': obj.price or '',
+                'popularity': obj.popularity or '',
+                'source': obj.source
+            }
+            rows.append(row)
+
+        # Create DataFrame and save to Excel
+        df = pd.DataFrame(rows)
+        df.to_excel(output_path, index=False, engine='openpyxl')
+        print(f"\nData saved to {output_path}")
 
     def save_to_json(self, data: List[Dict], filename: str = 'phone_data.json'):
         """Save scraped data to JSON file."""
@@ -778,18 +853,32 @@ class MobilePhoneMuseumScraper:
 if __name__ == "__main__":
     scraper = MobilePhoneMuseumScraper()
 
-    # Test with example URLs
-    print("Testing Mobile Phone Museum scraper...")
-    test_urls = [
-        "https://www.mobilephonemuseum.com/phone-detail/lumia-710",
-        "https://www.mobilephonemuseum.com/phone-detail/aa-callsafe-bag-transportable",
-        "https://www.mobilephonemuseum.com/phone-detail/siemens-m55",
-        "https://www.mobilephonemuseum.com/phone-detail/fm-57-d",
-        "https://www.mobilephonemuseum.com/phone-detail/vp1-prototype"
-    ]
+    # Read URLs from file
+    script_dir = Path(__file__).parent / '..' / '..' / 'data' / 'raw'
+    input_file = script_dir / 'mobile_phone_museum_links.txt'
 
-    for url in test_urls:
-        print(f"\nScraping: {url}")
-        result = scraper.scrape_phone_details(url)
-        if result:
-            print(json.dumps(result, indent=2))
+    output_path = script_dir / 'mobile_phone_museum_data.xlsx'
+
+    # Load URLs from file
+    urls = []
+    try:
+        with open(input_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    urls.append(line)
+        print(f"Loaded {len(urls)} URLs from {input_file}")
+    except Exception as e:
+        print(f"Error loading URLs: {e}")
+        exit(1)
+
+    # Scrape all phones
+    print("Starting to scrape phones...")
+    scraped_data = scraper.scrape_multiple_phones(urls, delay=1.0)
+
+    # Convert to DesignObject format
+    design_objects = scraper.convert_to_design_objects(scraped_data)
+    print(f"\nConverted {len(design_objects)} phones to DesignObject format")
+
+    # Save to Excel
+    scraper.save_to_xlsx(design_objects, output_path)
