@@ -2,6 +2,10 @@ from typing import Optional, List
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 from src.datacollection.design_object_model import DesignObject
+import os
+import inspect
+import pandas as pd
+
 
 # --- parameterized query ---
 # Query should depened on the the following parameters:
@@ -140,6 +144,38 @@ def fetch_design_objects(
     return results
 
 
+
+def save_design_objects_to_xlsx(objects: List[DesignObject], delimiter: str = "|||"):
+    # Define the relative path to the target folder
+    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
+    os.makedirs(data_dir, exist_ok=True)
+
+    # Use current Python script name to create output file
+    current_script = os.path.basename(inspect.stack()[-1].filename)
+    base_filename = os.path.splitext(current_script)[0]
+    output_path = os.path.join(data_dir, f"{base_filename}.xlsx")
+
+    # Prepare rows
+    rows = []
+    for obj in objects:
+        rows.append({
+            "name": obj.name,
+            "year": obj.year,
+            "classification": obj.classification,
+            "dimension": obj.dimension,
+            "makers": delimiter.join(obj.makers),
+            "image_urls": delimiter.join(obj.image_urls),
+            "country": obj.country,
+            "price": obj.price or "",
+            "popularity": obj.popularity or "",
+            "source": obj.source or "",
+        })
+
+    # Write to Excel
+    df = pd.DataFrame(rows)
+    df.to_excel(output_path, index=False)
+    print(f"✅ Saved {len(rows)} design objects to {output_path}")
+
 if __name__ == '__main__':
         # Countries to consider for Cooper Hewitt
         AMERICA_CANADA_COUNTRIES = [
@@ -160,6 +196,7 @@ if __name__ == '__main__':
         page = 0
 
         client = create_client()
+        all_objects = []
 
         total_count = 0
 
@@ -171,7 +208,9 @@ if __name__ == '__main__':
                 count = len(results)
                 year_count += count
                 total_count += count
+                all_objects.extend(results)
 
             print(f"Year: {year}, Found: {year_count}")
 
         print(f"\nTotal objects found: {total_count}")
+        save_design_objects_to_xlsx(all_objects)

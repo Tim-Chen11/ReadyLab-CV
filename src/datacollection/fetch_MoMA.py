@@ -132,6 +132,9 @@ from curl_cffi.requests import BrowserType
 import json, ssl, time, math, warnings, os, re
 from urllib.parse import unquote, urljoin
 from pyquery import PyQuery as pq
+import pandas as pd
+import inspect
+
 
 ssl._create_default_https_context = ssl._create_unverified_context
 warnings.filterwarnings("ignore")
@@ -139,10 +142,11 @@ warnings.filterwarnings("ignore")
 
 class DzSpider(object):
     def __init__(self):
+        self.all_objects = []
         self.data = {}
         self.folder = fr'{os.getcwd()}'
         self.start_page = 1
-        self.end_page = 5
+        self.end_page = 50
         self.spider_num = 1
         self.page_size = 40
         self.has_finish = False
@@ -210,17 +214,19 @@ class DzSpider(object):
 
         print(f"Starting scraper from page {self.start_page} to {self.end_page}")
 
-        while page_index <= self.end_page and not self.has_finish:
+        while page_index <= self.end_page:
             try:
                 print(f"\n{'=' * 50}")
-                print(f"Processing page {page_index}/{self.end_page}")
+                print(f"Processing page {page_index}")
                 print(f"{'=' * 50}")
 
-                success = self.get_one_page(page_index)
-                if not success:
-                    print(f"Failed to process page {page_index}, stopping...")
+                objects = self.get_one_page(page_index)
+                if not objects:
+                    print("No more objects found. Stopping.")
                     break
 
+                self.all_objects.extend(objects)
+                print(f"✅ Scraped {len(objects)} items on page {page_index}")
                 page_index += 1
                 time.sleep(1)
 
@@ -229,8 +235,7 @@ class DzSpider(object):
                 break
             except Exception as e:
                 print(f"Error processing page {page_index}: {e}")
-                page_index += 1
-                continue
+                break
 
         print(f"\nScraping completed! Total items processed: {self.spider_num - 1}")
 
@@ -252,6 +257,11 @@ class DzSpider(object):
         html = self.session.get(req_url, headers=self.headers, params=params).text
         doc = pq(html)
         items = doc("li a")
+
+        if items.length == 0:
+            print(f"⚠️ Page {page_index} returned no items.")
+            return []
+
         objects: list[DesignObject] = []
 
         for i, a in enumerate(items.items(), 1):
@@ -325,10 +335,41 @@ class DzSpider(object):
         return detail
 
 
+def save_design_objects_to_xlsx(objects: List[DesignObject], delimiter: str = "|||"):
+    # Resolve ../../data relative to current file
+    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get current Python filename without extension
+    script_name = Path(inspect.stack()[-1].filename).stem
+    filename = f"{script_name}.xlsx"
+    output_path = data_dir / filename
+
+    # Flatten DesignObjects
+    rows = []
+    for obj in objects:
+        rows.append({
+            "name": obj.name,
+            "year": obj.year,
+            "classification": obj.classification,
+            "dimension": obj.dimension,
+            "makers": delimiter.join(obj.makers),
+            "image_urls": delimiter.join(obj.image_urls),
+            "country": obj.country,
+            "price": obj.price or "",
+            "popularity": obj.popularity or "",
+            "source": obj.source or "",
+        })
+
+    pd.DataFrame(rows).to_excel(output_path, index=False)
+    print(f"✅ Saved {len(rows)} records to: {output_path}")
+
+
 if __name__ == '__main__':
     print("Starting MoMA Collection Scraper")
 
     spider = DzSpider()
     spider.run_task()
+    save_design_objects_to_xlsx(spider.all_objects)
 
     print("\nScraper finished!")
