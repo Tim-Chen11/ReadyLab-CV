@@ -603,8 +603,8 @@ if __name__ == "__main__":
     scraper = MobilePhoneMuseumScraper()
 
     # Read URLs from file
-    script_dir = Path(__file__).parent / '..' / '..' / 'data' / 'raw'
-    input_file = script_dir / 'mobile_phone_museum_links.txt'
+    script_dir = Path(__file__).parent / '..' / '..' / 'data'
+    input_file = script_dir/ 'raw' / 'mobile_phone_museum_links.txt'
 
     output_path = script_dir / 'mobile_phone_museum_data.xlsx'
 
