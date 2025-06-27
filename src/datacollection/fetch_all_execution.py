@@ -111,7 +111,7 @@ def combine_xlsx_files_to_fetch_all(file_paths: list[Path], drop_duplicates: boo
         print(f"Combined after deduplication: {len(combined_df)} rows")
 
     # Define output path: ../../data/fetch_ALL.xlsx
-    output_dir = Path(__file__).resolve().parent.parent.parent / "data"
+    output_dir = Path(__file__).resolve().parent.parent.parent / "data" / "metadata"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "fetch_ALL.xlsx"
 
@@ -125,9 +125,9 @@ def combine_xlsx_files_to_fetch_all(file_paths: list[Path], drop_duplicates: boo
 
 if __name__ == "__main__":
     combine_xlsx_files_to_fetch_all([
-        Path("../../data/fetch_MoMA.xlsx"),
-        Path("../../data/fetch_cooper_hewitt.xlsx"),
-        Path("../../data/mobile_phone_museum_data.xlsx.xlsx"),
+        Path("../../data/metadata/fetch_MoMA.xlsx"),
+        Path("../../data/metadata/fetch_cooper_hewitt.xlsx"),
+        Path("../../data/metadata/mobile_phone_museum_data.xlsx"),
     ])
 
 

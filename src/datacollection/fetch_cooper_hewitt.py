@@ -147,7 +147,7 @@ def fetch_design_objects(
 
 def save_design_objects_to_xlsx(objects: List[DesignObject], delimiter: str = "|||"):
     # Define the relative path to the target folder
-    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
+    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/metadata"))
     os.makedirs(data_dir, exist_ok=True)
 
     # Use current Python script name to create output file

@@ -337,7 +337,7 @@ class DzSpider(object):
 
 def save_design_objects_to_xlsx(objects: List[DesignObject], delimiter: str = "|||"):
     # Resolve ../../data relative to current file
-    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+    data_dir = Path(__file__).resolve().parent.parent.parent / "data" / "metadata"
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Get current Python filename without extension

@@ -606,7 +606,7 @@ if __name__ == "__main__":
     script_dir = Path(__file__).parent / '..' / '..' / 'data'
     input_file = script_dir/ 'raw' / 'mobile_phone_museum_links.txt'
 
-    output_path = script_dir / 'mobile_phone_museum_data.xlsx'
+    output_path = script_dir /'metadata'/ 'mobile_phone_museum_data.xlsx'
 
     # Load URLs from file
     urls = []
