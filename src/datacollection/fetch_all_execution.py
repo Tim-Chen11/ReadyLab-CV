@@ -126,7 +126,8 @@ def combine_xlsx_files_to_fetch_all(file_paths: list[Path], drop_duplicates: boo
 if __name__ == "__main__":
     combine_xlsx_files_to_fetch_all([
         Path("../../data/fetch_MoMA.xlsx"),
-        Path("../../data/fetch_cooper_hewitt.xlsx")
+        Path("../../data/fetch_cooper_hewitt.xlsx"),
+        Path("../../data/mobile_phone_museum_data.xlsx.xlsx"),
     ])
 
 
