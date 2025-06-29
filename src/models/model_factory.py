@@ -110,36 +110,6 @@ class ModelFactory:
         return info
 
 
-class ModelWithFeatures(nn.Module):
-    """Wrapper to extract features from any model"""
-
-    def __init__(self, base_model: nn.Module, feature_layer: str = 'global_pool'):
-        super().__init__()
-        self.base_model = base_model
-        self.feature_layer = feature_layer
-
-        # Register hook to extract features
-        self.features = None
-        self._register_hook()
-
-    def _register_hook(self):
-        """Register forward hook to extract features"""
-
-        def hook(module, input, output):
-            self.features = output
-
-        # Find the layer
-        for name, module in self.base_model.named_modules():
-            if name == self.feature_layer:
-                module.register_forward_hook(hook)
-                break
-
-    def forward(self, x):
-        """Forward pass returning both logits and features"""
-        logits = self.base_model(x)
-        return logits, self.features
-
-
 def create_optimizer(model: nn.Module, config: Dict) -> torch.optim.Optimizer:
     """
     Create optimizer based on configuration
