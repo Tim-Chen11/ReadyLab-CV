@@ -23,7 +23,7 @@ from src.utils.helpers import (
     create_experiment_structure, backup_code, get_experiment_name
 )
 from src.utils.visualization import plot_training_curves, plot_confusion_matrix
-
+from src.data.data_utils import create_data_loaders
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -96,71 +96,6 @@ def parse_arguments():
                         help='GPU ID to use')
 
     return parser.parse_args()
-
-
-def create_data_loaders(config, device):
-    """Create train and validation data loaders"""
-
-    # Get transforms
-    train_transform = get_transforms_for_model(config['model_name'], is_training=True)
-    val_transform = get_transforms_for_model(config['model_name'], is_training=False)
-
-    # Choose dataset class
-    dataset_class = CachedDataset if config['use_cached'] else URLDataset
-
-    # Create datasets
-    data_dir = Path(config['data_dir'])
-
-    if dataset_class == URLDataset:
-        train_dataset = URLDataset(
-            split_file=data_dir / 'splits' / 'train.json',
-            transform=train_transform,
-            cache_dir=data_dir / 'cache' / 'images'
-        )
-        val_dataset = URLDataset(
-            split_file=data_dir / 'splits' / 'val.json',
-            transform=val_transform,
-            cache_dir=data_dir / 'cache' / 'images'
-        )
-    else:
-        train_dataset = CachedDataset(
-            split_file=data_dir / 'splits' / 'train.json',
-            images_dir=data_dir / 'cache' / 'images',
-            transform=train_transform
-        )
-        val_dataset = CachedDataset(
-            split_file=data_dir / 'splits' / 'val.json',
-            images_dir=data_dir / 'cache' / 'images',
-            transform=val_transform
-        )
-
-    # Calculate class weights if needed
-    if config.get('class_weights', False):
-        labels = [label for _, label, _ in train_dataset]
-        class_weights = calculate_class_weights(labels, config['num_classes'])
-        class_weights = class_weights.to(device)
-    else:
-        class_weights = None
-
-    # Create data loaders
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=config['batch_size'],
-        shuffle=True,
-        num_workers=config['num_workers'],
-        pin_memory=True,
-        drop_last=True
-    )
-
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset,
-        batch_size=config['batch_size'],
-        shuffle=False,
-        num_workers=config['num_workers'],
-        pin_memory=True
-    )
-
-    return train_loader, val_loader, class_weights, train_dataset.decades
 
 
 def main():
@@ -245,7 +180,7 @@ def main():
                        f"(Trainable: {param_count['trainable']:,})")
 
     # Create data loaders
-    train_loader, val_loader, class_weights, class_names = create_data_loaders(config, device)
+    train_loader, val_loader, class_weights, class_names = create_data_loaders(config)
 
     logger.logger.info(f"Train samples: {len(train_loader.dataset)}")
     logger.logger.info(f"Val samples: {len(val_loader.dataset)}")
