@@ -9,6 +9,7 @@ import hashlib
 import logging
 from typing import Optional, Tuple, Dict
 import time
+import numpy as np
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
