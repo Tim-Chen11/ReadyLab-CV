@@ -121,17 +121,17 @@ def test_transforms():
     # Create dummy image
     dummy_image = Image.new('RGB', (300, 300), color='red')
 
-    # Test different transform types
+    # Test different transform types with expected sizes
     transforms_to_test = [
-        ('train_transforms', get_train_transforms(224, 'medium')),
-        ('val_transforms', get_val_transforms(224)),
-        ('efficientnet_transforms', get_transforms_for_model('efficientnet-b2', is_training=True))
+        ('train_transforms', get_train_transforms(224, 'medium'), (3, 224, 224)),
+        ('val_transforms', get_val_transforms(224), (3, 224, 224)),
+        ('efficientnet_transforms', get_transforms_for_model('efficientnet-b2', is_training=True), (3, 260, 260))
     ]
 
-    for name, transform in transforms_to_test:
+    for name, transform, expected_shape in transforms_to_test:
         tensor = transform(dummy_image)
         print(f"✓ {name}: output shape = {tensor.shape}")
-        assert tensor.shape == (3, 224, 224), f"Unexpected tensor shape for {name}"
+        assert tensor.shape == expected_shape, f"Unexpected tensor shape for {name}: expected {expected_shape}, got {tensor.shape}"
 
     # Test augmentation levels
     for level in ['light', 'medium', 'heavy']:
@@ -200,7 +200,6 @@ def test_data_loading():
         stats = dataset.get_statistics()
         print(f"✓ Dataset statistics: {stats}")
 
-
 def test_data_loaders():
     """Test DataLoader creation"""
     print("Testing DataLoader creation...")
@@ -235,20 +234,42 @@ def test_data_loaders():
 
         # Test loading one batch
         if len(train_loader) > 0:
-            for batch_idx, (images, labels, metadata) in enumerate(train_loader):
+            for batch_idx, batch_data in enumerate(train_loader):
+                # Handle different batch formats
+                if len(batch_data) == 2:
+                    images, labels = batch_data
+                    metadata = None
+                elif len(batch_data) == 3:
+                    images, labels, metadata = batch_data
+                else:
+                    images = batch_data[0]
+                    labels = batch_data[1]
+                    metadata = batch_data[2:] if len(batch_data) > 2 else None
+
                 print(f"✓ Batch {batch_idx}: images={images.shape}, labels={labels.shape}")
-                print(f"✓ Sample metadata: {metadata[0] if metadata else 'None'}")
+                
+                # Handle metadata safely
+                if metadata is not None:
+                    if isinstance(metadata, (list, tuple)) and len(metadata) > 0:
+                        print(f"✓ Sample metadata: {metadata[0]}")
+                    elif isinstance(metadata, dict):
+                        print(f"✓ Sample metadata: {metadata}")
+                    else:
+                        print(f"✓ Sample metadata type: {type(metadata)}")
+                else:
+                    print(f"✓ Sample metadata: None")
 
                 # Validate batch
                 assert images.shape[0] <= config['batch_size'], "Batch size exceeded"
-                assert images.shape[1:] == (3, 224, 224), f"Unexpected image shape: {images.shape}"
+                # Update expected shape for EfficientNet
+                expected_shape = (3, 260, 260)  # EfficientNet-B2 uses 260x260
+                assert images.shape[1:] == expected_shape, f"Unexpected image shape: {images.shape}, expected {expected_shape}"
                 assert labels.shape[0] == images.shape[0], "Label count mismatch"
 
                 break  # Just test first batch
 
     except FileNotFoundError as e:
         raise FileNotFoundError(f"Required data files not found. Please run data preparation first: {e}")
-
 
 def test_dataset_analysis():
     """Test dataset analysis functions"""

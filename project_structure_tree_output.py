@@ -18,4 +18,4 @@ def print_tree(path='.', prefix='', level=0, max_depth=2):
 
 if __name__ == '__main__':
     print("Project Structure:\n")
-    print_tree('.', max_depth=3)  # You can change to 2 or 4 if needed
+    print_tree('.', max_depth=4)  # You can change to 2 or 4 if needed

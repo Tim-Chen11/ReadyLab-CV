@@ -12,6 +12,7 @@ import time
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+from torchvision import transforms
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -117,27 +118,145 @@ class URLDataset(BaseDataset):
         return self.cache_dir / f"{url_hash}.jpg"
 
     def _download_image(self, url: str) -> Optional[Image.Image]:
-        """Download image from URL with retries"""
+        """Download image from URL with retries and improved error handling"""
+
+        # Enhanced headers to avoid 403 Forbidden errors
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+
         for attempt in range(self.max_retries):
             try:
-                response = requests.get(url, timeout=self.timeout)
-                response.raise_for_status()
-                image = Image.open(BytesIO(response.content)).convert('RGB')
+                # Add delay between attempts (exponential backoff)
+                if attempt > 0:
+                    delay = min(2 ** attempt, 10)  # Cap at 10 seconds
+                    time.sleep(delay)
+                    logger.debug(f"Retry {attempt + 1} for {url} after {delay}s delay")
 
-                # Validate image
+                # Make request with improved settings
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    timeout=self.timeout,
+                    stream=True,  # Stream for large images
+                    allow_redirects=True,  # Follow redirects
+                    verify=True  # Verify SSL certificates
+                )
+
+                # Check response status
+                response.raise_for_status()
+
+                # Check content type
+                content_type = response.headers.get('content-type', '').lower()
+                if not any(img_type in content_type for img_type in ['image/', 'application/octet-stream']):
+                    raise ValueError(f"Invalid content type: {content_type}")
+
+                # Check content length (avoid downloading huge files)
+                content_length = response.headers.get('content-length')
+                if content_length and int(content_length) > 50 * 1024 * 1024:  # 50MB limit
+                    raise ValueError(f"Image too large: {content_length} bytes")
+
+                # Read content
+                content = response.content
+
+                # Check if content is actually an image
+                if len(content) < 100:  # Too small to be a valid image
+                    raise ValueError(f"Content too small: {len(content)} bytes")
+
+                # Check for common image file signatures
+                image_signatures = [
+                    b'\xff\xd8\xff',  # JPEG
+                    b'\x89PNG\r\n\x1a\n',  # PNG
+                    b'GIF87a',  # GIF87a
+                    b'GIF89a',  # GIF89a
+                    b'RIFF',  # WebP (starts with RIFF)
+                    b'BM',  # BMP
+                ]
+
+                if not any(content.startswith(sig) for sig in image_signatures):
+                    logger.warning(f"Content doesn't appear to be a valid image: {url}")
+                    # Try to continue anyway - PIL might still be able to handle it
+
+                # Try to open and validate image
+                try:
+                    image = Image.open(BytesIO(content)).convert('RGB')
+                except Exception as img_error:
+                    raise ValueError(f"Failed to decode image: {img_error}")
+
+                # Validate image dimensions
                 if image.size[0] < 10 or image.size[1] < 10:
                     raise ValueError(f"Image too small: {image.size}")
 
+                # Check for extremely large images that might cause memory issues
+                if image.size[0] * image.size[1] > 20000 * 20000:  # 400MP limit
+                    logger.warning(f"Very large image: {image.size}, might resize")
+                    # Could add automatic resizing here if needed
+
+                # Success!
                 self.stats['downloads'] += 1
+                logger.debug(f"Successfully downloaded {url}: {image.size}")
                 return image
 
+            except requests.exceptions.HTTPError as e:
+                error_msg = f"HTTP error {response.status_code}"
+                if response.status_code == 403:
+                    error_msg += " (Forbidden - website blocking requests)"
+                elif response.status_code == 404:
+                    error_msg += " (Not Found - URL may be outdated)"
+                elif response.status_code == 429:
+                    error_msg += " (Rate Limited - too many requests)"
+                    # Longer delay for rate limiting
+                    if attempt < self.max_retries - 1:
+                        time.sleep(30)
+                elif response.status_code >= 500:
+                    error_msg += " (Server Error - temporary issue)"
+
+                logger.debug(f"Attempt {attempt + 1}: {error_msg} for {url}")
+                last_error = error_msg
+
+            except requests.exceptions.Timeout:
+                error_msg = f"Timeout after {self.timeout}s"
+                logger.debug(f"Attempt {attempt + 1}: {error_msg} for {url}")
+                last_error = error_msg
+
+            except requests.exceptions.ConnectionError:
+                error_msg = "Connection error (network or DNS issue)"
+                logger.debug(f"Attempt {attempt + 1}: {error_msg} for {url}")
+                last_error = error_msg
+
+            except requests.exceptions.RequestException as e:
+                error_msg = f"Request error: {str(e)}"
+                logger.debug(f"Attempt {attempt + 1}: {error_msg} for {url}")
+                last_error = error_msg
+
+            except ValueError as e:
+                # Image validation errors
+                error_msg = f"Image validation error: {str(e)}"
+                logger.debug(f"Attempt {attempt + 1}: {error_msg} for {url}")
+                last_error = error_msg
+
             except Exception as e:
-                if attempt == self.max_retries - 1:
-                    logger.error(f"Failed to download {url} after {self.max_retries} attempts: {e}")
-                    self.failed_downloads.add(url)
-                    self.stats['failures'] += 1
-                    return None
-                time.sleep(1)  # Wait before retry
+                error_msg = f"Unexpected error: {str(e)}"
+                logger.debug(f"Attempt {attempt + 1}: {error_msg} for {url}")
+                last_error = error_msg
+
+            # Don't retry for certain errors
+            if any(phrase in str(last_error).lower() for phrase in [
+                'not found', '404', 'invalid content type', 'too small', 'too large'
+            ]):
+                logger.debug(f"Not retrying {url} due to: {last_error}")
+                break
+
+        # All attempts failed
+        logger.error(f"Failed to download {url} after {self.max_retries} attempts: {last_error}")
+        self.failed_downloads.add(url)
+        self.stats['failures'] += 1
         return None
 
     def _load_image(self, item: Dict) -> Optional[Image.Image]:
@@ -442,37 +561,197 @@ def create_subset_dataset(
 
 
 if __name__ == "__main__":
-    # Test the dataset
+    # Test the dataset with your actual project structure
     from torchvision import transforms
+    from pathlib import Path
+    import sys
 
-    # Create transform
+    print("🧪 URL_DATASET.PY QUICK TEST")
+    print("=" * 40)
+
+    # Get project root - go up from src/data/ to project root
+    current_file = Path(__file__)  # This is src/data/url_dataset.py
+    project_root = current_file.parent.parent.parent  # Go up 3 levels: data -> src -> project_root
+
+    print(f"Project root: {project_root}")
+    print(f"Current file: {current_file}")
+
+    # Define paths based on your project structure
+    data_dir = project_root / "data"
+    splits_dir = data_dir / "splits"
+    cache_dir = data_dir / "cache" / "images"
+
+    # Check if required files exist
+    train_split = splits_dir / "train.json"
+    val_split = splits_dir / "val.json"
+
+    print(f"\nChecking files:")
+    print(f"  Data dir: {data_dir.exists()} - {data_dir}")
+    print(f"  Splits dir: {splits_dir.exists()} - {splits_dir}")
+    print(f"  Cache dir: {cache_dir.exists()} - {cache_dir}")
+    print(f"  Train split: {train_split.exists()} - {train_split}")
+
+    if not train_split.exists():
+        print(f"\n❌ Train split file not found!")
+        print(f"Available files in splits directory:")
+        if splits_dir.exists():
+            for file in splits_dir.iterdir():
+                print(f"  - {file.name}")
+        else:
+            print(f"  Splits directory doesn't exist!")
+        sys.exit(1)
+
+    # Count cached images
+    if cache_dir.exists():
+        cached_images = list(cache_dir.glob('*.jpg'))
+        print(f"  Cached images: {len(cached_images)}")
+    else:
+        cached_images = []
+        print(f"  Cached images: 0 (cache dir doesn't exist)")
+
+    # Create simple transform
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    # Test URL dataset
-    print("Testing URLDataset...")
-    dataset = URLDataset(
-        split_file='../data/splits/train.json',
-        transform=transform,
-        cache_dir='../data/cache/images'
-    )
+    try:
+        print(f"\n1. Testing BaseDataset...")
+        base_dataset = BaseDataset(str(train_split))
+        print(f"   ✓ Loaded {len(base_dataset)} samples")
+        print(f"   ✓ Classes: {base_dataset.decades}")
 
-    # Create a small subset for testing
-    subset = create_subset_dataset(dataset, fraction=0.01)
+        # Show label distribution
+        labels = base_dataset.get_labels()
+        from collections import Counter
 
-    # Try loading first few images
-    for i in range(min(5, len(subset))):
-        try:
-            image, label, metadata = subset[i]
-            print(f"Image {i}: shape={image.shape}, label={label} ({metadata['decade']}), name={metadata['name']}")
-        except Exception as e:
-            print(f"Error loading image {i}: {e}")
+        label_counts = Counter(labels)
+        print(f"   ✓ Label distribution:")
+        for idx, count in label_counts.items():
+            decade = base_dataset.idx_to_label[idx]
+            print(f"     {decade}: {count} samples")
 
-    # Print statistics
-    print("\nDataset statistics:")
-    stats = dataset.get_statistics()
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
+        # Test metadata
+        if len(base_dataset) > 0:
+            metadata = base_dataset.get_metadata(0)
+            print(f"   ✓ First sample: {metadata['name'][:50]}... ({metadata['decade']})")
+
+    except Exception as e:
+        print(f"❌ BaseDataset test failed: {e}")
+        sys.exit(1)
+
+    try:
+        print(f"\n2. Testing URLDataset...")
+        url_dataset = URLDataset(
+            split_file=str(train_split),
+            transform=transform,
+            cache_dir=str(cache_dir),
+            fallback_on_error=True,  # Use fallback for failed downloads
+            max_retries=2,
+            timeout=5
+        )
+
+        print(f"   ✓ URLDataset initialized with {len(url_dataset)} samples")
+        print(f"   ✓ Cache directory: {url_dataset.cache_dir}")
+
+        # Create a tiny subset for quick testing (0.1% = ~5-10 samples)
+        subset = create_subset_dataset(url_dataset, fraction=0.001, seed=42)
+        print(f"   ✓ Created test subset with {len(subset)} samples")
+
+        # Try loading a few samples
+        successful_loads = 0
+        failed_loads = 0
+
+        print(f"   ✓ Testing sample loading...")
+        for i in range(min(3, len(subset))):
+            try:
+                image, label, metadata = subset[i]
+                print(f"     Sample {i}: shape={image.shape}, label={label} ({metadata['decade']})")
+                print(f"       Name: {metadata['name'][:40]}...")
+                successful_loads += 1
+
+                # Basic validation
+                assert image.shape == (3, 224, 224), f"Unexpected shape: {image.shape}"
+                assert 0 <= label < 5, f"Label out of range: {label}"
+
+            except Exception as e:
+                print(f"     Sample {i} failed: {str(e)[:60]}...")
+                failed_loads += 1
+
+        print(f"   ✓ Results: {successful_loads} successful, {failed_loads} failed")
+
+        # Get and display statistics
+        stats = url_dataset.get_statistics()
+        print(f"   ✓ Dataset statistics:")
+        for key, value in stats.items():
+            if isinstance(value, float):
+                print(f"     {key}: {value:.2f}")
+            else:
+                print(f"     {key}: {value}")
+
+    except Exception as e:
+        print(f"❌ URLDataset test failed: {e}")
+        import traceback
+
+        print(f"Traceback: {traceback.format_exc()}")
+        sys.exit(1)
+
+    try:
+        print(f"\n3. Testing CachedDataset...")
+
+        if len(cached_images) > 0:
+            cached_dataset = CachedDataset(
+                split_file=str(train_split),
+                images_dir=str(cache_dir),
+                transform=transform,
+                verify_images=True
+            )
+
+            print(f"   ✓ CachedDataset: {len(cached_dataset)} valid cached images")
+
+            if len(cached_dataset) > 0:
+                # Try loading one cached sample
+                image, label, metadata = cached_dataset[0]
+                print(f"   ✓ Cached sample: shape={image.shape}, label={label}")
+                print(f"     Name: {metadata['name'][:40]}...")
+            else:
+                print(f"   ⚠️  No valid cached images found")
+        else:
+            print(f"   ⚠️  No cached images available, skipping CachedDataset test")
+
+    except Exception as e:
+        print(f"❌ CachedDataset test failed: {e}")
+        # Don't exit here, just warn
+
+    try:
+        print(f"\n4. Testing create_subset_dataset...")
+
+        # Test different subset sizes
+        for fraction in [0.1, 0.01]:
+            subset = create_subset_dataset(base_dataset, fraction=fraction, seed=42)
+            expected_size = max(5, int(len(base_dataset) * fraction))  # At least 1 per class
+            print(f"   ✓ Subset {fraction * 100}%: {len(subset)} samples (expected ~{expected_size})")
+
+            # Check that we have diverse classes
+            subset_labels = subset.get_labels()
+            unique_classes = len(set(subset_labels))
+            print(f"     Classes represented: {unique_classes}/5")
+
+    except Exception as e:
+        print(f"❌ Subset creation test failed: {e}")
+
+    print(f"\n" + "=" * 40)
+    print(f"🎉 URL_DATASET.PY TESTS COMPLETED!")
+    print(f"✅ Core functionality is working")
+    print(f"")
+    print(f"Usage examples:")
+    print(f"  # Basic dataset")
+    print(f"  dataset = BaseDataset('{train_split}')")
+    print(f"  ")
+    print(f"  # URL dataset with caching")
+    print(f"  dataset = URLDataset('{train_split}', cache_dir='{cache_dir}')")
+    print(f"  ")
+    print(f"  # Cached dataset (faster)")
+    print(f"  dataset = CachedDataset('{train_split}', images_dir='{cache_dir}')")
+

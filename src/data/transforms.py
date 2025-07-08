@@ -357,22 +357,106 @@ def test_augmentations(
     plt.show()
 
 
-if __name__ == "__main__":
-    # Test transforms
+#!/usr/bin/env python3
+"""
+Simple test script to quickly verify transforms.py functions
+Add this to the bottom of transforms.py or run separately
+"""
+
+def quick_test_transforms():
+    """Quick test of all major functions"""
+    import torch
     import numpy as np
     from PIL import Image
 
-    # Create dummy image
-    dummy_image = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8))
+    print("🧪 Quick Transforms Test")
+    print("-" * 40)
 
-    # Test different augmentation levels
-    for level in ['light', 'medium', 'heavy']:
-        transform = get_train_transforms(augmentation_level=level)
-        transformed = transform(dummy_image)
-        print(f"{level} augmentation output shape: {transformed.shape}")
+    # Create test image
+    test_img = Image.fromarray(np.random.randint(0, 255, (300, 300, 3), dtype=np.uint8))
+    print(f"✓ Created test image: {test_img.size}")
 
-    # Test model-specific transforms
-    for model_name in ['efficientnet-b2', 'convnext-tiny-384', 'resnet50']:
-        transform = get_transforms_for_model(model_name, is_training=True)
-        config = TRAINING_CONFIGS.get(model_name, {})
-        print(f"{model_name}: input_size={config.get('input_size', 224)}")
+    # Test 1: Basic transforms
+    try:
+        train_transform = get_train_transforms(224, 'medium')
+        val_transform = get_val_transforms(224)
+
+        train_tensor = train_transform(test_img)
+        val_tensor = val_transform(test_img)
+
+        print(f"✓ Train transform: {train_tensor.shape}")
+        print(f"✓ Val transform: {val_tensor.shape}")
+    except Exception as e:
+        print(f"❌ Basic transforms failed: {e}")
+        return False
+
+    # Test 2: Model-specific transforms
+    try:
+        for model in ['resnet50', 'efficientnet-b2']:
+            transform = get_transforms_for_model(model, is_training=True)
+            tensor = transform(test_img)
+            print(f"✓ {model} transform: {tensor.shape}")
+    except Exception as e:
+        print(f"❌ Model-specific transforms failed: {e}")
+        return False
+
+    # Test 3: MixUp and CutMix
+    try:
+        batch_size = 4
+        images = torch.randn(batch_size, 3, 224, 224)
+        labels = torch.tensor([0, 1, 2, 3])
+
+        # MixUp
+        mixup = MixUpTransform(alpha=1.0, num_classes=5)
+        mixed_images, labels_a, labels_b, lam = mixup(images, labels)
+        print(f"✓ MixUp: lambda={lam:.3f}, shape={mixed_images.shape}")
+
+        # CutMix
+        cutmix = CutMixTransform(alpha=1.0, num_classes=5)
+        mixed_images, labels_a, labels_b, lam = cutmix(images, labels)
+        print(f"✓ CutMix: lambda={lam:.3f}, shape={mixed_images.shape}")
+    except Exception as e:
+        print(f"❌ Advanced augmentations failed: {e}")
+        return False
+
+    # Test 4: RandAugment
+    try:
+        randaug = RandAugmentTransform(n=2, m=10)
+        aug_img = randaug(test_img)
+        print(f"✓ RandAugment: {test_img.size} -> {aug_img.size}")
+    except Exception as e:
+        print(f"❌ RandAugment failed: {e}")
+        return False
+
+    # Test 5: Denormalization
+    try:
+        denorm = DeNormalize()
+        normalized = val_transform(test_img)
+        denormalized = denorm(normalized)
+        print(f"✓ Denormalize: {normalized.shape} -> {denormalized.shape}")
+    except Exception as e:
+        print(f"❌ Denormalization failed: {e}")
+        return False
+
+    print("-" * 40)
+    print("🎉 All transforms working correctly!")
+    return True
+
+# Add this to test when the module is run directly
+if __name__ == "__main__":
+    # Quick test
+    success = quick_test_transforms()
+
+    if success:
+        print("\n✅ transforms.py is ready to use!")
+    else:
+        print("\n❌ transforms.py has issues that need fixing")
+
+    # Optional: Visual test (uncomment if you want to see augmentations)
+    """
+    try:
+        # This requires matplotlib
+        test_augmentations('path/to/test/image.jpg', 'efficientnet-b2', 8)
+    except:
+        print("Visual test skipped (requires matplotlib and test image)")
+    """
