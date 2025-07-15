@@ -324,7 +324,7 @@ class URLDataset(BaseDataset):
         # Get metadata
         metadata = self.get_metadata(idx)
 
-        return image, label, metadata
+        return image, label, {}
 
     def get_statistics(self) -> Dict:
         """Get dataset statistics"""
@@ -401,7 +401,7 @@ class CachedDataset(BaseDataset):
         # Get metadata
         metadata = self.get_metadata(idx)
 
-        return image, label, metadata
+        return image, label, {}
 
 
 def download_dataset_images(

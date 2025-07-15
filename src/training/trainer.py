@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
@@ -55,7 +55,7 @@ class Trainer:
     def _setup_amp(self):
         """Setup automatic mixed precision"""
         self.use_amp = self.config.get('use_amp', True) and torch.cuda.is_available()
-        self.scaler = GradScaler() if self.use_amp else None
+        self.scaler = GradScaler('cuda') if self.use_amp else None
 
     def train_epoch(
             self,
@@ -76,7 +76,7 @@ class Trainer:
             # Forward pass
             optimizer.zero_grad()
 
-            with autocast(enabled=self.use_amp):
+            with autocast('cuda', enabled=self.use_amp):
                 outputs = self.model(images)
                 loss = self.criterion(outputs, labels)
 

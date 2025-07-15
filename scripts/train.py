@@ -1,15 +1,18 @@
 #!/usr/bin/env python
 """
-Main training script using modular components
+Main training script using modular components with improved robustness
 """
 import argparse
 import sys
 from pathlib import Path
+from datetime import datetime
+import logging
 
+# FIXED: Ensure proper path handling
 sys.path.append(str(Path(__file__).parent.parent))
 
 import torch
-from datetime import datetime
+from torch.utils.data import DataLoader  # ADDED: Missing import
 
 # Import modular components
 from src.models.model_factory import ModelFactory, create_optimizer, create_scheduler
@@ -20,13 +23,13 @@ from src.training.metrics import calculate_class_weights
 from src.utils.logger import ExperimentLogger
 from src.utils.helpers import (
     set_seed, get_device, count_parameters,
-    create_experiment_structure, backup_code, get_experiment_name
+    create_experiment_structure, backup_code
 )
-from src.utils.visualization import plot_training_curves, plot_confusion_matrix
+from src.utils.visualization import plot_training_curves
 from src.data.data_utils import create_data_loaders
 
 def parse_arguments():
-    """Parse command line arguments"""
+    """Parse command line arguments with additional options"""
     parser = argparse.ArgumentParser(description='Train decade classifier')
 
     # Model arguments
@@ -48,13 +51,18 @@ def parse_arguments():
     parser.add_argument('--weight_decay', type=float, default=None,
                         help='Weight decay (default: model-specific)')
 
-    # Data arguments
-    parser.add_argument('--data_dir', type=str, default='../data',
+    # Data arguments - FIXED: Correct default path
+    parser.add_argument('--data_dir', type=str, default='data',  # FIXED: Removed ../
                         help='Data directory')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of data loading workers')
     parser.add_argument('--use_cached', action='store_true',
                         help='Use pre-downloaded cached images')
+    # REMOVED: refresh_cache (not implemented in data_utils)
+    parser.add_argument('--use_subset', action='store_true',
+                        help='Use a subset of data for quick testing')
+    parser.add_argument('--subset_fraction', type=float, default=0.1,
+                        help='Fraction of data to use if use_subset is True')
 
     # Optimization arguments
     parser.add_argument('--optimizer', type=str, default='adamw',
@@ -74,13 +82,17 @@ def parse_arguments():
                         help='Loss function')
     parser.add_argument('--label_smoothing', type=float, default=0.1,
                         help='Label smoothing factor')
+    parser.add_argument('--focal_gamma', type=float, default=2.0,
+                        help='Gamma parameter for focal loss')
+    parser.add_argument('--focal_alpha', type=float, default=0.25,
+                        help='Alpha parameter for focal loss')
     parser.add_argument('--class_weights', action='store_true',
                         help='Use class weights for imbalanced data')
 
     # Experiment arguments
     parser.add_argument('--exp_name', type=str, default=None,
                         help='Experiment name')
-    parser.add_argument('--exp_dir', type=str, default='../experiments',
+    parser.add_argument('--exp_dir', type=str, default='experiments',  # FIXED: Removed ../
                         help='Experiments directory')
     parser.add_argument('--seed', type=int, default=42,
                         help='Random seed')
@@ -88,15 +100,15 @@ def parse_arguments():
                         help='Use Weights & Biases logging')
 
     # Other arguments
-    parser.add_argument('--early_stopping', type=int, default=0,
+    parser.add_argument('--early_stopping', type=int, default=5,
                         help='Early stopping patience (0 to disable)')
-    parser.add_argument('--save_every', type=int, default=0,
-                        help='Save checkpoint every N epochs')
+    # REMOVED: save_every (implement in Trainer if needed)
+    parser.add_argument('--save_final', action='store_true', default=True,
+                        help='Save final model state')
     parser.add_argument('--gpu', type=int, default=None,
                         help='GPU ID to use')
 
     return parser.parse_args()
-
 
 def main():
     # Parse arguments
@@ -105,28 +117,59 @@ def main():
     # Set random seed
     set_seed(args.seed)
 
-    # Get device
+    # Get device with improved handling
     device = get_device(args.gpu)
+    if args.gpu is not None and not torch.cuda.is_available():
+        print(f"Warning: GPU {args.gpu} requested but not available, falling back to CPU")
+        device = torch.device("cpu")
+    elif args.gpu is not None and args.gpu >= torch.cuda.device_count():
+        print(f"Warning: GPU {args.gpu} invalid, falling back to CPU")
+        device = torch.device("cpu")
+    
+    # Log GPU details
+    if torch.cuda.is_available() and device.type == 'cuda':
+        gpu_id = torch.cuda.current_device()
+        gpu_name = torch.cuda.get_device_name(gpu_id)
+        print(f"Using GPU {gpu_id}: {gpu_name}")
 
-    # Create config
-    config = ModelFactory.get_model_config(args.model_name)
+    # Initialize basic logging to ensure create_data_loaders can log
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    # Override with command line arguments
+    # Create config - FIXED: Better error handling
+    try:
+        config = ModelFactory.get_model_config(args.model_name)
+    except KeyError:
+        print(f"Error: Unknown model '{args.model_name}'. Available models:")
+        for model in ModelFactory.list_available_models():
+            print(f"  - {model}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Failed to load model config: {e}")
+        sys.exit(1)
+
+    # Override with command line arguments - FIXED: Match data_utils expectations
     config.update({
         'model_name': args.model_name,
         'pretrained': args.pretrained,
         'epochs': args.epochs,
         'num_workers': args.num_workers,
         'use_cached': args.use_cached,
+        'use_subset': args.use_subset,
+        'subset_fraction': args.subset_fraction,
         'optimizer': args.optimizer,
         'scheduler': args.scheduler,
         'use_amp': args.use_amp,
         'gradient_clip_val': args.gradient_clip,
         'num_classes': 5,  # 5 decades
         'early_stopping': args.early_stopping,
-        'save_every': args.save_every,
         'seed': args.seed,
         'data_dir': args.data_dir,
+        'use_class_weights': args.class_weights,
+        # ADDED: Missing parameters that data_utils expects
+        'use_weighted_sampling': False,  # Default to False
+        'augmentation_level': 'medium',  # Default augmentation
+        'max_download_retries': 3,      # Default retries
+        'download_timeout': 10,         # Default timeout
     })
 
     # Override specific parameters if provided
@@ -137,17 +180,45 @@ def main():
     if args.weight_decay:
         config['weight_decay'] = args.weight_decay
 
+    # IMPROVED: Better validation with specific error messages
+    try:
+        if config['batch_size'] > 128:
+            print(f"Warning: Large batch size {config['batch_size']} may cause memory issues")
+        if not (1e-6 <= config['learning_rate'] <= 1):
+            print(f"Warning: Learning rate {config['learning_rate']} outside typical range [1e-6, 1]")
+        if not (0 <= config['weight_decay'] <= 1):
+            print(f"Warning: Weight decay {config['weight_decay']} outside typical range [0, 1]")
+        if args.use_subset and not (0 < args.subset_fraction <= 1):
+            print(f"Error: subset_fraction {args.subset_fraction} must be in (0, 1]")
+            sys.exit(1)
+    except KeyError as e:
+        print(f"Error: Missing required config parameter: {e}")
+        sys.exit(1)
+
     # Loss configuration
     loss_config = {'name': args.loss, 'params': {}}
     if args.loss == 'label_smoothing':
         loss_config['params']['smoothing'] = args.label_smoothing
+    elif args.loss == 'focal':
+        loss_config['params']['gamma'] = args.focal_gamma
+        loss_config['params']['alpha'] = args.focal_alpha
     config['loss'] = loss_config
 
-    # Create experiment name and structure
-    exp_name = args.exp_name or get_experiment_name(args.model_name)
-    exp_dirs = create_experiment_structure(Path(args.exp_dir), exp_name)
+    # Create experiment name with timestamp for uniqueness
+    if args.exp_name:
+        exp_name = args.exp_name
+    else:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        exp_name = f"{args.model_name}_{timestamp}"
 
-    # Initialize logger
+    # Create experiment structure with error handling
+    try:
+        exp_dirs = create_experiment_structure(Path(args.exp_dir), exp_name)
+    except Exception as e:
+        print(f"Failed to create experiment structure: {e}")
+        sys.exit(1)
+
+    # Initialize experiment logger
     logger = ExperimentLogger(
         experiment_name=exp_name,
         project_name='decade-classifier',
@@ -159,66 +230,131 @@ def main():
 
     logger.logger.info(f"Starting experiment: {exp_name}")
     logger.logger.info(f"Using device: {device}")
+    logger.logger.info(f"Command-line arguments: {vars(args)}")
 
     # Backup code
-    backup_code(
-        src_dir=Path(__file__).parent.parent,
-        backup_dir=exp_dirs['configs'] / 'code_backup'
-    )
+    try:
+        backup_code(
+            src_dir=Path(__file__).parent.parent,
+            backup_dir=exp_dirs['configs'] / 'code_backup'
+        )
+    except Exception as e:
+        logger.logger.warning(f"Failed to backup code: {e}")
 
     # Create model
-    model = ModelFactory.create_model(
-        config['model_name'],
-        num_classes=config['num_classes'],
-        pretrained=config['pretrained']
-    )
-    model = model.to(device)
+    try:
+        model = ModelFactory.create_model(
+            config['model_name'],
+            num_classes=config['num_classes'],
+            pretrained=config['pretrained']
+        )
+        model = model.to(device)
+    except Exception as e:
+        logger.logger.error(f"Failed to create model: {e}")
+        sys.exit(1)
 
     # Log model info
     param_count = count_parameters(model)
     logger.logger.info(f"Model parameters: {param_count['total']:,} "
-                       f"(Trainable: {param_count['trainable']:,})")
+                      f"(Trainable: {param_count['trainable']:,})")
 
-    # Create data loaders
-    train_loader, val_loader, class_weights, class_names = create_data_loaders(config)
+    # FIXED: Create data loaders with consistent parameters
+    try:
+        # Convert string path to Path object as expected by data_utils
+        data_dir_path = Path(args.data_dir)
+        
+        train_loader, val_loader, class_weights, class_names = create_data_loaders(
+            config=config,
+            data_dir=data_dir_path,  # FIXED: Pass Path object
+            use_subset=args.use_subset,
+            subset_fraction=args.subset_fraction
+        )
+    except FileNotFoundError as e:
+        logger.logger.error(f"Data files not found: {e}")
+        logger.logger.error("Please ensure data/splits/ directory contains train.json, val.json, test.json")
+        sys.exit(1)
+    except Exception as e:
+        logger.logger.error(f"Failed to create data loaders: {e}")
+        sys.exit(1)
 
     logger.logger.info(f"Train samples: {len(train_loader.dataset)}")
     logger.logger.info(f"Val samples: {len(val_loader.dataset)}")
+    logger.logger.info(f"Class names: {class_names}")
 
     # Update loss config with class weights
     if args.class_weights and class_weights is not None:
         config['loss']['params']['class_weights'] = class_weights
+        logger.logger.info(f"Using class weights: {class_weights.numpy()}")
 
     # Create optimizer and scheduler
-    optimizer = create_optimizer(model, config)
-    scheduler = create_scheduler(optimizer, config)
+    try:
+        optimizer = create_optimizer(model, config)
+        scheduler = create_scheduler(optimizer, config)
+    except Exception as e:
+        logger.logger.error(f"Failed to create optimizer or scheduler: {e}")
+        sys.exit(1)
 
     # Create trainer
-    trainer = Trainer(
-        model=model,
-        config=config,
-        device=device,
-        experiment_dir=exp_dirs['root'],
-        logger=logger.logger
-    )
+    try:
+        trainer = Trainer(
+            model=model,
+            config=config,
+            device=device,
+            experiment_dir=exp_dirs['root'],
+            logger=logger.logger
+        )
+    except Exception as e:
+        logger.logger.error(f"Failed to create trainer: {e}")
+        sys.exit(1)
 
     # Resume from checkpoint if specified
     start_epoch = 0
     if args.resume:
-        checkpoint = trainer.load_checkpoint(Path(args.resume))
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if scheduler and checkpoint.get('scheduler_state_dict'):
-            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        start_epoch = checkpoint['epoch']
+        try:
+            checkpoint = trainer.load_checkpoint(Path(args.resume))
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            if scheduler and checkpoint.get('scheduler_state_dict'):
+                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            start_epoch = checkpoint['epoch']
+            logger.logger.info(f"Resumed from checkpoint: {args.resume} (epoch {start_epoch})")
+        except FileNotFoundError:
+            logger.logger.error(f"Checkpoint file not found: {args.resume}")
+            sys.exit(1)
+        except Exception as e:
+            logger.logger.error(f"Failed to load checkpoint: {e}")
+            sys.exit(1)
 
     # Train model
-    results = trainer.train(
-        train_loader=train_loader,
-        val_loader=val_loader,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        start_epoch=start_epoch
-    )
+    try:
+        logger.logger.info("Starting training...")
+        results = trainer.train(
+            train_loader=train_loader,
+            val_loader=val_loader,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            start_epoch=start_epoch
+        )
+    except KeyboardInterrupt:
+        logger.logger.info("Training interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.logger.error(f"Training failed: {e}")
+        sys.exit(1)
+
+    # Save final model state if specified
+    if args.save_final:
+        try:
+            final_path = exp_dirs['checkpoints'] / 'final_checkpoint.pth'
+            trainer.save_checkpoint(
+                optimizer=optimizer,
+                scheduler=scheduler,
+                epoch=config['epochs'],
+                val_metrics=results['metrics_history']['val'][-1] if results.get('metrics_history') and results['metrics_history']['val'] else {},
+                is_best=False
+            )
+            logger.logger.info(f"Final checkpoint saved to: {final_path}")
+        except Exception as e:
+            logger.logger.error(f"Failed to save final checkpoint: {e}")
 
     # Save final results
     logger.log_metrics(
@@ -230,27 +366,34 @@ def main():
         step=config['epochs']
     )
 
-    # Create visualizations
-    logger.logger.info("Creating visualizations...")
-
-    # Plot training curves
-    plot_training_curves(
-        results['metrics_history'],
-        save_path=exp_dirs['visualizations'] / 'training_curves.png',
-        show=False
-    )
+    # Create visualizations with safety check
+    if results.get('metrics_history'):
+        try:
+            plot_training_curves(
+                results['metrics_history'],
+                save_path=exp_dirs['visualizations'] / 'training_curves.png',
+                show=False
+            )
+            logger.logger.info("Training curves saved")
+        except Exception as e:
+            logger.logger.warning(f"Failed to plot training curves: {e}")
+    else:
+        logger.logger.warning("No metrics history available to plot")
 
     # Log best model
-    best_checkpoint_path = exp_dirs['checkpoints'] / 'best_checkpoint.pth'
-    logger.log_model(best_checkpoint_path, aliases=['best', f"acc_{results['best_metric']:.2f}"])
+    try:
+        best_checkpoint_path = exp_dirs['checkpoints'] / 'best_checkpoint.pth'
+        if best_checkpoint_path.exists():
+            logger.log_model(best_checkpoint_path, aliases=['best', f"acc_{results['best_metric']:.2f}"])
+    except Exception as e:
+        logger.logger.warning(f"Failed to log model: {e}")
 
     # Finish logging
     logger.finish()
 
     print(f"\nTraining complete!")
-    print(f"Best accuracy: {results['best_metric']:.2f}% at epoch {results['best_epoch']}")
+    print(f"Best accuracy: {results['best_metric']*100:.2f}% at epoch {results['best_epoch']}")
     print(f"Results saved to: {exp_dirs['root']}")
-
 
 if __name__ == '__main__':
     main()
