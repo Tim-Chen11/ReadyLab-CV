@@ -7,7 +7,7 @@ from pathlib import Path
 
 def create_product_aware_splits(metadata_path, output_dir,
                                 val_ratio=0.15, test_ratio=0.15,
-                                min_images_per_decade=50):
+                                min_images_per_decade=50, source_filter=None):
     """
     Create splits ensuring:
     1. All images of same product stay together
@@ -18,7 +18,21 @@ def create_product_aware_splits(metadata_path, output_dir,
     # Load metadata
     with open(metadata_path, 'r') as f:
         data = json.load(f)
-
+    
+    if source_filter == 'mobile':
+        # Filter for Mobile Phone Museum
+        filtered_data = []
+        for entry in data:
+            if entry.get('source') == 'https://www.mobilephonemuseum.com/':
+                filtered_data.append(entry)
+        
+        data = filtered_data  # Replace data with filtered data
+        print(f"Mobile Phone Museum entries: {len(data)}")
+        
+        if len(data) == 0:
+            print("No Mobile Phone Museum entries found!")
+            return
+            
     # Group by product_id to keep product images together
     products = defaultdict(list)
     for entry in data:
@@ -150,5 +164,8 @@ def create_product_aware_splits(metadata_path, output_dir,
 if __name__ == "__main__":
     create_product_aware_splits(
         '../data/metadata/processed_metadata.json',
-        '../data/splits'
+        '../data/splits',
+        val_ratio=0.15,  # Float, not string
+        test_ratio=0.15,  # Float, not string
+        source_filter='mobile'  # Now in the right place
     )
