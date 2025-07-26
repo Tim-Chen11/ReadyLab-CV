@@ -1,6 +1,6 @@
 import os
 
-EXCLUDE = {'.venv', '.idea', '__pycache__', '.git', 'node_modules', '.DS_Store', 'cache'}
+EXCLUDE = {'.venv', '.idea', '__pycache__', '.git', 'node_modules', '.DS_Store', 'cache', 'experiments'}
 
 def print_tree(path='.', prefix='', level=0, max_depth=2):
     if level >= max_depth:

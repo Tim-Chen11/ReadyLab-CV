@@ -14,6 +14,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from torchvision import transforms
 
+# Configure logging to show messages
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Output to terminal
+        logging.FileHandler('download.log')  # Also save to file
+    ]
+)
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -458,7 +467,20 @@ def download_dataset_images(
             return url, True, "cached"
 
         try:
-            response = requests.get(url, timeout=10)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+            response = requests.get(
+                url,
+                headers=headers,
+                timeout=10
+            )
             response.raise_for_status()
             image = Image.open(BytesIO(response.content)).convert('RGB')
 
@@ -500,7 +522,7 @@ def download_dataset_images(
 
     # Save failed items report
     if failed_items:
-        failed_report_path = cache_dir / 'download_failures.json'
+        failed_report_path = cache_dir.parent / 'download_failures.json'
         with open(failed_report_path, 'w') as f:
             json.dump(failed_items, f, indent=2)
         logger.info(f"Saved failure report to {failed_report_path}")

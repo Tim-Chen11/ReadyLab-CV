@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 import re
 from collections import defaultdict
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def parse_year(year_str):
@@ -150,9 +153,32 @@ def process_product_data(xlsx_path, output_dir):
     print(f"\nImages per decade:")
     for decade in sorted(stats['decades'].keys()):
         print(f"  {decade}: {stats['decades'][decade]} images")
+    print("\n\n")
 
     return processed_data, stats
 
 
 if __name__ == "__main__":
-    process_product_data('../data/metadata/fetch_ALL.xlsx', '../data/metadata')
+    from src.data.url_dataset import download_dataset_images
+
+    data_dir = Path('data')
+    processed_json_path = data_dir / 'metadata' / 'processed_metadata.json'
+    image_cache_dir = data_dir / 'cache' / 'images'
+
+    process_product_data(data_dir / 'metadata' / 'fetch_ALL.xlsx', data_dir / 'metadata')
+
+    # Download images
+    print("Starting download...")
+    download_results = download_dataset_images(
+        split_files=[str(processed_json_path)],
+        cache_dir=str(image_cache_dir),
+        num_workers=8,
+        skip_existing=True
+    )
+
+    print("\n=== Download Summary ===")
+    print(json.dumps(download_results, indent=2))
+
+    # Adding the cluster
+
+
