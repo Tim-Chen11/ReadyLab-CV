@@ -160,11 +160,13 @@ def process_product_data(xlsx_path, output_dir):
 
 if __name__ == "__main__":
     from src.data.url_dataset import download_dataset_images
+    from scripts.feature_cluster import add_clustering_to_pipeline
 
     data_dir = Path('data')
     processed_json_path = data_dir / 'metadata' / 'processed_metadata.json'
     image_cache_dir = data_dir / 'cache' / 'images'
 
+    # Your existing processing steps
     process_product_data(data_dir / 'metadata' / 'fetch_ALL.xlsx', data_dir / 'metadata')
 
     # Download images
@@ -179,6 +181,16 @@ if __name__ == "__main__":
     print("\n=== Download Summary ===")
     print(json.dumps(download_results, indent=2))
 
-    # Adding the cluster
+    # Add clustering 
+    print("\n=== Starting Clustering Process (Fast Mode) ===")
+    clustered_json_path = add_clustering_to_pipeline(
+        data_dir, 
+        batch_size=64,      # Larger batch for speed
+        use_fixed_k=True,   # Skip optimization for speed
+        fixed_k=5          # Use 5 clusters per decade
+    )
+    
+    
+    print(f"\nFinal clustered metadata saved to: {clustered_json_path}")
 
 
