@@ -34,21 +34,21 @@ def main():
 
     print("=== Product Design Year Classification Pipeline ===\n")
 
-    # # Step 1: Process XLSX
-    # print("Step 1: Processing product data...")
-    # if not run_step('process_xlsx.py'):
-    #     return
+    # Step 1: Process XLSX
+    print("Step 1: Processing product data...")
+    if not run_step('process_xlsx.py'):
+        return
 
-    # # Step 2: Validate URLs (optional)
-    # if not args.skip_validation:
-    #     print("\nStep 2: Validating image URLs...")
-    #     if not run_step('validate_urls.py'):
-    #         print("URL validation failed, continuing anyway...")
+    # Step 2: Validate URLs (optional)
+    if not args.skip_validation:
+        print("\nStep 2: Validating image URLs...")
+        if not run_step('validate_urls.py'):
+            print("URL validation failed, continuing anyway...")
 
-    # # Step 3: Create splits
-    # print("\nStep 3: Creating train/val/test splits...")
-    # if not run_step('create_splits.py'):
-    #     return
+    # Step 3: Create splits
+    print("\nStep 3: Creating train/val/test splits...")
+    if not run_step('create_splits.py'):
+        return
 
     # Step 4: Analyze dataset
     print("\nStep 4: Analyzing dataset...")
