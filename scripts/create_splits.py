@@ -16,7 +16,7 @@ def create_product_aware_splits(metadata_path, output_dir,
     """
 
     # Load metadata
-    with open(metadata_path, 'r') as f:
+    with open(metadata_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
     if source_filter == 'mobile':
@@ -162,10 +162,12 @@ def create_product_aware_splits(metadata_path, output_dir,
 
 
 if __name__ == "__main__":
+    project_root = Path(__file__).parent.parent
+    
     create_product_aware_splits(
-        '../data/metadata/processed_metadata.json',
-        '../data/splits',
-        val_ratio=0.15,  # Float, not string
-        test_ratio=0.15,  # Float, not string
-        source_filter='mobile'  # Now in the right place
+        str(project_root / 'data/metadata/processed_metadata.json'),
+        str(project_root / 'data/splits'),
+        val_ratio=0.15,
+        test_ratio=0.15,
+        source_filter='mobile'
     )

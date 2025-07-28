@@ -11,7 +11,7 @@ def analyze_dataset(splits_dir):
     # Load all splits
     splits = {}
     for split_name in ['train', 'val', 'test']:
-        with open(Path(splits_dir) / f'{split_name}.json', 'r') as f:
+        with open(Path(splits_dir) / f'{split_name}.json', 'r', encoding='utf-8') as f:
             splits[split_name] = json.load(f)
 
     # Create analysis directory
@@ -119,7 +119,7 @@ def analyze_dataset(splits_dir):
     report.append(f"Unique Countries: {unique_countries}")
 
     # Save report
-    with open(analysis_dir / 'dataset_report.txt', 'w') as f:
+    with open(analysis_dir / 'dataset_report.txt', 'w', encoding='utf-8') as f:
         f.write('\n'.join(report))
 
     print('\n'.join(report))
@@ -127,4 +127,7 @@ def analyze_dataset(splits_dir):
 
 
 if __name__ == "__main__":
-    analyze_dataset('../data/splits')
+
+    project_root = Path(__file__).parent.parent
+    
+    analyze_dataset(str(project_root / 'data/splits'))

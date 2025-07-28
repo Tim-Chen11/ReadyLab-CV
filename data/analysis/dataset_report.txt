@@ -1,15 +1,13 @@
 === Dataset Analysis Report ===
 
-Total Images: 8001
-Unique Products: 3339
-Average Images per Product: 2.40
+Total Images: 3478
+Unique Products: 991
+Average Images per Product: 3.51
 
 Decade Coverage:
-  1960s: 448 products
-  1970s: 419 products
-  1980s: 643 products
-  1990s: 788 products
-  2000s: 1041 products
+  1980s: 36 products
+  1990s: 219 products
+  2000s: 736 products
 
-Unique Classifications: 24
-Unique Countries: 2
+Unique Classifications: 1
+Unique Countries: 1

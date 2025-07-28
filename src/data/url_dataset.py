@@ -20,7 +20,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),  # Output to terminal
-        logging.FileHandler('download.log')  # Also save to file
     ]
 )
 # Set up logging
