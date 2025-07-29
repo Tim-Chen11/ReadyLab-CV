@@ -13,7 +13,6 @@ from sklearn.metrics import confusion_matrix, classification_report
 
 from .losses import get_loss_function
 from .metrics import MetricTracker
-from ..models.model_factory import MultiTaskLoss
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +49,9 @@ class Trainer:
     def _setup_loss(self):
         """Setup loss function"""
         if self.multi_task:
-            # Multi-task loss setup
-            decade_weight = self.config.get('decade_weight', 1.0)
-            cluster_weight = self.config.get('cluster_weight', 1.0)
-            loss_type = self.config.get('loss_type', 'cross_entropy')
-            
-            self.criterion = MultiTaskLoss(
-                decade_weight=decade_weight,
-                cluster_weight=cluster_weight,
-                loss_type=loss_type
-            )
-            self.logger.info(f"Multi-task loss: decade_weight={decade_weight}, cluster_weight={cluster_weight}")
+            # Multi-task loss setup - will be set externally
+            self.logger.info("Multi-task loss will be set externally")
+            self.criterion = None
         else:
             # Single-task loss setup (original)
             loss_config = self.config.get('loss', {})
@@ -291,25 +282,49 @@ class Trainer:
                 self.logger.info(f"\n{task.capitalize()} Classification Report:")
                 task_class_names = class_names.get(task) if class_names else None
                 
-                report = classification_report(
-                    labels[task], 
-                    predictions[task],
-                    target_names=task_class_names,
-                    output_dict=False
-                )
-                self.logger.info(f"\n{report}")
+                # Check if we have multiple classes for this task
+                unique_labels = np.unique(labels[task])
+                if len(unique_labels) <= 1:
+                    self.logger.info(f"Only {len(unique_labels)} class(es) found for {task}. Skipping classification report.")
+                    continue
+                
+                try:
+                    report = classification_report(
+                        labels[task], 
+                        predictions[task],
+                        target_names=task_class_names,
+                        output_dict=False
+                    )
+                    self.logger.info(f"\n{report}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to generate classification report for {task}: {e}")
+                    self.logger.info(f"Labels shape: {labels[task].shape}, Predictions shape: {predictions[task].shape}")
+                    if task_class_names is not None:
+                        self.logger.info(f"Class names type: {type(task_class_names)}, Class names: {task_class_names}")
         else:
             # Single-task classification report
             self.logger.info("\nClassification Report:")
             task_class_names = class_names if isinstance(class_names, list) else None
             
-            report = classification_report(
-                labels, 
-                predictions,
-                target_names=task_class_names,
-                output_dict=False
-            )
-            self.logger.info(f"\n{report}")
+            # Check if we have multiple classes
+            unique_labels = np.unique(labels)
+            if len(unique_labels) <= 1:
+                self.logger.info(f"Only {len(unique_labels)} class(es) found. Skipping classification report.")
+                return
+            
+            try:
+                report = classification_report(
+                    labels, 
+                    predictions,
+                    target_names=task_class_names,
+                    output_dict=False
+                )
+                self.logger.info(f"\n{report}")
+            except Exception as e:
+                self.logger.warning(f"Failed to generate classification report: {e}")
+                self.logger.info(f"Labels shape: {labels.shape}, Predictions shape: {predictions.shape}")
+                if task_class_names is not None:
+                    self.logger.info(f"Class names type: {type(task_class_names)}, Class names: {task_class_names}")
 
     def train(
             self,
@@ -374,19 +389,19 @@ class Trainer:
                 )
 
             # Log detailed classification report every few epochs
-            if epoch % self.config.get('log_report_every', 5) == 0:
-                self._log_classification_reports(predictions, labels, class_names)
+            # if epoch % self.config.get('log_report_every', 5) == 0:
+            #     self._log_classification_reports(predictions, labels, class_names)
 
             # Save metrics history
-            self.metrics_history['train'].append({
-                'epoch': epoch,
-                **train_metrics,
-                'lr': current_lr
-            })
-            self.metrics_history['val'].append({
-                'epoch': epoch,
-                **val_metrics
-            })
+            # self.metrics_history['train'].append({
+            #     'epoch': epoch,
+            #     **train_metrics,
+            #     'lr': current_lr
+            # })
+            # self.metrics_history['val'].append({
+            #     'epoch': epoch,
+            #     **val_metrics
+            # })
 
             # Check if best model
             monitor_metric = self.config.get('monitor_metric', 'accuracy')

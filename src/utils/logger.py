@@ -29,6 +29,9 @@ def setup_logger(
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    
+    # Prevent propagation to root logger to avoid duplication
+    logger.propagate = False
 
     # Remove existing handlers
     logger.handlers = []
@@ -57,7 +60,6 @@ def setup_logger(
 
     return logger
 
-
 class ExperimentLogger:
     """Logger for ML experiments with multiple backends"""
 
@@ -78,8 +80,8 @@ class ExperimentLogger:
         # Create directories
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Setup file logger
-        self.logger = setup_logger(
+        # Setup file logger (private to encourage using convenience methods)
+        self._logger = setup_logger(
             name=experiment_name,
             log_dir=self.log_dir,
             log_file='experiment.log'
@@ -101,10 +103,10 @@ class ExperimentLogger:
                 config=self.config,
                 dir=self.log_dir
             )
-            self.logger.info("Initialized W&B logging")
+            self._logger.info("Initialized W&B logging")
             return True
         except Exception as e:
-            self.logger.warning(f"Failed to initialize W&B: {e}")
+            self._logger.warning(f"Failed to initialize W&B: {e}")
             return False
 
     def _init_tensorboard(self) -> bool:
@@ -114,11 +116,37 @@ class ExperimentLogger:
             self.tb_writer = SummaryWriter(
                 log_dir=self.log_dir / 'tensorboard'
             )
-            self.logger.info("Initialized TensorBoard logging")
+            self._logger.info("Initialized TensorBoard logging")
             return True
         except Exception as e:
-            self.logger.warning(f"Failed to initialize TensorBoard: {e}")
+            self._logger.warning(f"Failed to initialize TensorBoard: {e}")
             return False
+
+    # Convenience methods to delegate to underlying logger
+    def info(self, message: str):
+        """Log info message"""
+        self._logger.info(message)
+    
+    def debug(self, message: str):
+        """Log debug message"""
+        self._logger.debug(message)
+    
+    def warning(self, message: str):
+        """Log warning message"""
+        self._logger.warning(message)
+    
+    def error(self, message: str):
+        """Log error message"""
+        self._logger.error(message)
+    
+    def critical(self, message: str):
+        """Log critical message"""
+        self._logger.critical(message)
+    
+    @property
+    def logger(self):
+        """Backward compatibility - access to internal logger (deprecated)"""
+        return self._logger
 
     def log_config(self, config: Dict):
         """Log configuration"""
@@ -127,7 +155,7 @@ class ExperimentLogger:
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
 
-        self.logger.info(f"Configuration saved to {config_path}")
+        self._logger.info(f"Configuration saved to {config_path}")
 
     def log_metrics(self, metrics: Dict[str, float], step: int, prefix: str = ''):
         """Log metrics to all backends"""
@@ -137,7 +165,7 @@ class ExperimentLogger:
 
         # Log to console
         metrics_str = ', '.join([f"{k}: {v:.4f}" for k, v in metrics.items()])
-        self.logger.info(f"Step {step} - {metrics_str}")
+        self._logger.info(f"Step {step} - {metrics_str}")
 
         # Log to W&B
         if self.use_wandb:
@@ -179,8 +207,7 @@ class ExperimentLogger:
         if self.use_tensorboard:
             self.tb_writer.close()
 
-        self.logger.info("Experiment logging finished")
-
+        self._logger.info("Experiment logging finished")
 
 class MetricsLogger:
     """Simple metrics logger to JSON file"""

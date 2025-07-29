@@ -140,7 +140,9 @@ def main():
         print(f"Using GPU {gpu_id}: {gpu_name}")
 
     # Initialize basic logging to ensure create_data_loaders can log
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    # Only set up basic logging if no handlers exist to avoid duplication
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     # Create config - FIXED: Better error handling
     try:
@@ -240,9 +242,9 @@ def main():
         use_tensorboard=True
     )
 
-    logger.logger.info(f"Starting experiment: {exp_name}")
-    logger.logger.info(f"Using device: {device}")
-    logger.logger.info(f"Command-line arguments: {vars(args)}")
+    logger.info(f"Starting experiment: {exp_name}")
+    logger.info(f"Using device: {device}")
+    logger.info(f"Command-line arguments: {vars(args)}")
 
     # Backup code
     try:
@@ -251,19 +253,27 @@ def main():
             backup_dir=exp_dirs['configs'] / 'code_backup'
         )
     except Exception as e:
-        logger.logger.warning(f"Failed to backup code: {e}")
+        logger.warning(f"Failed to backup code: {e}")
 
     # Create model
     try:
         if args.multi_task:
+            # Multi-task model - pass num_classes as a dictionary
             model = ModelFactory.create_model(
                 config['model_name'],
-                multi_task=True,  # Enable multi-task mode
-                num_decade_classes=config['num_decade_classes'],
-                num_cluster_classes=config['num_cluster_classes'],
+                num_classes={
+                    'decade': config['num_decade_classes'],
+                    'cluster': config['num_cluster_classes']
+                },
+                multi_task=True,
+                multitask_config={
+                    'hidden_dim': 512,
+                    'dropout_rate': 0.3
+                },
                 pretrained=config['pretrained']
             )
         else:
+            # Single-task model
             model = ModelFactory.create_model(
                 config['model_name'],
                 num_classes=config['num_classes'],
@@ -271,12 +281,12 @@ def main():
             )
         model = model.to(device)
     except Exception as e:
-        logger.logger.error(f"Failed to create model: {e}")
+        logger.error(f"Failed to create model: {e}")
         sys.exit(1)
 
     # Log model info
     param_count = count_parameters(model)
-    logger.logger.info(f"Model parameters: {param_count['total']:,} "
+    logger.info(f"Model parameters: {param_count['total']:,} "
                       f"(Trainable: {param_count['trainable']:,})")
 
     # FIXED: Create data loaders with consistent parameters
@@ -299,28 +309,45 @@ def main():
         else:
             logger.info(f"Class names: {class_names}")
     except FileNotFoundError as e:
-        logger.logger.error(f"Data files not found: {e}")
-        logger.logger.error("Please ensure data/splits/ directory contains train.json, val.json, test.json")
+        logger.error(f"Data files not found: {e}")
+        logger.error("Please ensure data/splits/ directory contains train.json, val.json, test.json")
         sys.exit(1)
     except Exception as e:
-        logger.logger.error(f"Failed to create data loaders: {e}")
+        logger.error(f"Failed to create data loaders: {e}")
         sys.exit(1)
 
-    logger.logger.info(f"Train samples: {len(train_loader.dataset)}")
-    logger.logger.info(f"Val samples: {len(val_loader.dataset)}")
-    logger.logger.info(f"Class names: {class_names}")
+    logger.info(f"Train samples: {len(train_loader.dataset)}")
+    logger.info(f"Val samples: {len(val_loader.dataset)}")
+    logger.info(f"Class names: {class_names}")
 
-    # Update loss config with class weights
-    if args.class_weights and class_weights is not None:
-        config['loss']['params']['class_weights'] = class_weights
-        logger.logger.info(f"Using class weights: {class_weights.numpy()}")
+    # Create loss function
+    if args.multi_task:
+        # Multi-task loss
+        criterion = ModelFactory.create_multitask_loss(
+            decade_weight=args.decade_weight,
+            cluster_weight=args.cluster_weight,
+            loss_type='cross_entropy'
+        )
+    else:
+        # Single-task loss
+        loss_config = config.get('loss', {})
+        loss_name = loss_config.get('name', 'cross_entropy')
+        loss_params = loss_config.get('params', {})
+        
+        # Update loss config with class weights
+        if args.class_weights and class_weights is not None:
+            loss_params['class_weights'] = class_weights
+            logger.info(f"Using class weights: {class_weights.numpy()}")
+        
+        from src.training.losses import get_loss_function
+        criterion = get_loss_function(loss_name, **loss_params)
 
     # Create optimizer and scheduler
     try:
         optimizer = create_optimizer(model, config)
         scheduler = create_scheduler(optimizer, config)
     except Exception as e:
-        logger.logger.error(f"Failed to create optimizer or scheduler: {e}")
+        logger.error(f"Failed to create optimizer or scheduler: {e}")
         sys.exit(1)
 
     # Create trainer
@@ -330,11 +357,15 @@ def main():
             config=config,
             device=device,
             experiment_dir=exp_dirs['root'],
-            logger=logger.logger,
+            logger=logger,
             multi_task=args.multi_task  # Pass multi_task flag
         )
+        
+        # Set the criterion
+        trainer.criterion = criterion
+        
     except Exception as e:
-        logger.logger.error(f"Failed to create trainer: {e}")
+        logger.error(f"Failed to create trainer: {e}")
         sys.exit(1)
 
     # Resume from checkpoint if specified
@@ -346,29 +377,30 @@ def main():
             if scheduler and checkpoint.get('scheduler_state_dict'):
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             start_epoch = checkpoint['epoch']
-            logger.logger.info(f"Resumed from checkpoint: {args.resume} (epoch {start_epoch})")
+            logger.info(f"Resumed from checkpoint: {args.resume} (epoch {start_epoch})")
         except FileNotFoundError:
-            logger.logger.error(f"Checkpoint file not found: {args.resume}")
+            logger.error(f"Checkpoint file not found: {args.resume}")
             sys.exit(1)
         except Exception as e:
-            logger.logger.error(f"Failed to load checkpoint: {e}")
+            logger.error(f"Failed to load checkpoint: {e}")
             sys.exit(1)
 
     # Train model
     try:
-        logger.logger.info("Starting training...")
+        logger.info("Starting training...")
         results = trainer.train(
             train_loader=train_loader,
             val_loader=val_loader,
             optimizer=optimizer,
             scheduler=scheduler,
-            start_epoch=start_epoch
+            start_epoch=start_epoch,
+            class_names=class_names
         )
     except KeyboardInterrupt:
-        logger.logger.info("Training interrupted by user")
+        logger.info("Training interrupted by user")
         sys.exit(0)
     except Exception as e:
-        logger.logger.error(f"Training failed: {e}")
+        logger.error(f"Training failed: {e}")
         sys.exit(1)
 
     # Save final model state if specified
@@ -382,9 +414,9 @@ def main():
                 val_metrics=results['metrics_history']['val'][-1] if results.get('metrics_history') and results['metrics_history']['val'] else {},
                 is_best=False
             )
-            logger.logger.info(f"Final checkpoint saved to: {final_path}")
+            logger.info(f"Final checkpoint saved to: {final_path}")
         except Exception as e:
-            logger.logger.error(f"Failed to save final checkpoint: {e}")
+            logger.error(f"Failed to save final checkpoint: {e}")
 
     # Save final results
     logger.log_metrics(
@@ -404,11 +436,11 @@ def main():
                 save_path=exp_dirs['visualizations'] / 'training_curves.png',
                 show=False
             )
-            logger.logger.info("Training curves saved")
+            logger.info("Training curves saved")
         except Exception as e:
-            logger.logger.warning(f"Failed to plot training curves: {e}")
+            logger.warning(f"Failed to plot training curves: {e}")
     else:
-        logger.logger.warning("No metrics history available to plot")
+        logger.warning("No metrics history available to plot")
 
     # Log best model
     try:
@@ -416,7 +448,7 @@ def main():
         if best_checkpoint_path.exists():
             logger.log_model(best_checkpoint_path, aliases=['best', f"acc_{results['best_metric']:.2f}"])
     except Exception as e:
-        logger.logger.warning(f"Failed to log model: {e}")
+        logger.warning(f"Failed to log model: {e}")
 
     # Finish logging
     logger.finish()

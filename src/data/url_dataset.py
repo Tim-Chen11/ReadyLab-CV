@@ -42,8 +42,9 @@ class BaseDataset(Dataset):
         self.transform = transform
         self.multi_task = multi_task
 
-        # Create label mapping for 5 decades
-        self.decades = ['1960s', '1970s', '1980s', '1990s', '2000s']
+        # Create label mapping for decades (dynamically from data)
+        decades_in_data = set(item['decade'] for item in self.data)
+        self.decades = sorted(list(decades_in_data))  # Sort for consistency
         self.label_to_idx = {d: i for i, d in enumerate(self.decades)}
         self.idx_to_label = {i: d for i, d in enumerate(self.decades)}
         self.num_classes = len(self.decades)
@@ -52,7 +53,7 @@ class BaseDataset(Dataset):
             # Extract unique clusters from data
             clusters = set()
             for item in self.data:
-                cluster = item.get('cluster', 'unknown')
+                cluster = item.get('cluster', 0)
                 clusters.add(cluster)
             
             self.clusters = sorted(list(clusters))  # Sort for consistency
@@ -60,7 +61,7 @@ class BaseDataset(Dataset):
             self.idx_to_cluster = {i: c for i, c in enumerate(self.clusters)}
             self.num_cluster_classes = len(self.clusters)
             
-            logger.info(f"Multi-task mode: {self.num_decade_classes} decades, {self.num_cluster_classes} clusters")
+            logger.info(f"Multi-task mode: {self.num_classes} decades, {self.num_cluster_classes} clusters")
             logger.info(f"Clusters: {self.clusters}")
         else:
             self.clusters = None
@@ -69,6 +70,8 @@ class BaseDataset(Dataset):
             self.num_cluster_classes = 0
 
         logger.info(f"Loaded dataset from {split_file} with {len(self.data)} images")
+        logger.info(f"Decades in data: {self.decades}")
+        logger.info(f"Number of decade classes: {self.num_classes}")
 
     def __len__(self) -> int:
         return len(self.data)
@@ -81,12 +84,12 @@ class BaseDataset(Dataset):
         """Get all cluster labels for computing class weights (multi-task only)"""
         if not self.multi_task:
             raise ValueError("Cluster labels only available in multi-task mode")
-        return [self.cluster_to_idx[item.get('cluster', 'unknown')] for item in self.data]
+        return [self.cluster_to_idx[item.get('cluster', 0)] for item in self.data]
 
     def get_metadata(self, idx: int) -> Dict:
         """Get metadata for an item"""
         item = self.data[idx]
-        return {
+        metadata = {
             'id': item['id'],
             'product_id': item['product_id'],
             'name': item['name'],
@@ -94,9 +97,13 @@ class BaseDataset(Dataset):
             'url': item.get('url', ''),
             'classification': item.get('classification', 'unknown'),
             'makers': item.get('makers', 'unknown'),
-            'country': item.get('country', 'unknown'),
-            'cluster': item.get('cluster', 'unknown')
+            'country': item.get('country', 'unknown')
         }
+        
+        if self.multi_task:
+            metadata['cluster'] = item.get('cluster', 0)
+            
+        return metadata
 
 
 class URLDataset(BaseDataset):
@@ -109,7 +116,8 @@ class URLDataset(BaseDataset):
             cache_dir: Optional[str] = None,
             max_retries: int = 3,
             timeout: int = 10,
-            fallback_on_error: bool = True
+            fallback_on_error: bool = True,
+            multi_task: bool = False
     ):
         """
         Args:
@@ -119,8 +127,9 @@ class URLDataset(BaseDataset):
             max_retries: Maximum download attempts per image
             timeout: Download timeout in seconds
             fallback_on_error: Use placeholder image on download failure
+            multi_task: Whether to use multi-task learning (decade + cluster)
         """
-        super().__init__(split_file, transform)
+        super().__init__(split_file, transform, multi_task)
 
         self.max_retries = max_retries
         self.timeout = timeout
@@ -357,14 +366,14 @@ class URLDataset(BaseDataset):
 
         # Get labels
         if self.multi_task:
-            decade_label = self.decade_to_idx[item['decade']]
-            cluster_label = self.cluster_to_idx[item.get('cluster', 'unknown')]
+            decade_label = self.label_to_idx[item['decade']]
+            cluster_label = self.cluster_to_idx[item.get('cluster', 0)]
             labels = {
                 'decade': decade_label,
                 'cluster': cluster_label
             }
         else:
-            labels = self.decade_to_idx[item['decade']]
+            labels = self.label_to_idx[item['decade']]
 
         # Get metadata
         metadata = self.get_metadata(idx)
@@ -389,7 +398,8 @@ class CachedDataset(BaseDataset):
             split_file: str,
             images_dir: str,
             transform=None,
-            verify_images: bool = True
+            verify_images: bool = True,
+            multi_task: bool = False
     ):
         """
         Args:
@@ -397,8 +407,9 @@ class CachedDataset(BaseDataset):
             images_dir: Directory containing downloaded images
             transform: Torchvision transforms to apply
             verify_images: Whether to verify all images exist on init
+            multi_task: Whether to use multi-task learning (decade + cluster)
         """
-        super().__init__(split_file, transform)
+        super().__init__(split_file, transform, multi_task)
 
         self.images_dir = Path(images_dir)
 
@@ -442,14 +453,14 @@ class CachedDataset(BaseDataset):
 
         # Get labels
         if self.multi_task:
-            decade_label = self.decade_to_idx[item['decade']]
-            cluster_label = self.cluster_to_idx[item.get('cluster', 'unknown')]
+            decade_label = self.label_to_idx[item['decade']]
+            cluster_label = self.cluster_to_idx[item.get('cluster', 0)]
             labels = {
                 'decade': decade_label,
                 'cluster': cluster_label
             }
         else:
-            labels = self.decade_to_idx[item['decade']]
+            labels = self.label_to_idx[item['decade']]
 
         # Get metadata
         metadata = self.get_metadata(idx)
