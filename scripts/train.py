@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader  # ADDED: Missing import
 from src.models.model_factory import ModelFactory, create_optimizer, create_scheduler
 from src.data.url_dataset import URLDataset, CachedDataset
 from src.data.transforms import get_transforms_for_model
-from src.training.trainer import Trainer
+from src.training.trainer import Trainer, collate_multitask_fn
 from src.training.metrics import calculate_class_weights
 from src.utils.logger import ExperimentLogger
 from src.utils.helpers import (
@@ -107,6 +107,13 @@ def parse_arguments():
                         help='Save final model state')
     parser.add_argument('--gpu', type=int, default=None,
                         help='GPU ID to use')
+    
+    parser.add_argument('--multi_task', action='store_true', 
+                        help='Enable multi-task learning for decade and cluster classification')
+    parser.add_argument('--decade_weight', type=float, default=1.0, 
+                        help='Weight for decade loss in multi-task learning')
+    parser.add_argument('--cluster_weight', type=float, default=1.0, 
+                        help='Weight for cluster loss in multi-task learning')
 
     return parser.parse_args()
 
@@ -170,6 +177,11 @@ def main():
         'augmentation_level': 'medium',  # Default augmentation
         'max_download_retries': 3,      # Default retries
         'download_timeout': 10,         # Default timeout
+        'multi_task': args.multi_task,
+        'decade_weight': args.decade_weight,
+        'cluster_weight': args.cluster_weight,
+        'num_decade_classes': 5,  # Number of decade classes
+        'num_cluster_classes': 5,  # Replace with actual number of cluster classes
     })
 
     # Override specific parameters if provided
@@ -243,11 +255,20 @@ def main():
 
     # Create model
     try:
-        model = ModelFactory.create_model(
-            config['model_name'],
-            num_classes=config['num_classes'],
-            pretrained=config['pretrained']
-        )
+        if args.multi_task:
+            model = ModelFactory.create_model(
+                config['model_name'],
+                multi_task=True,  # Enable multi-task mode
+                num_decade_classes=config['num_decade_classes'],
+                num_cluster_classes=config['num_cluster_classes'],
+                pretrained=config['pretrained']
+            )
+        else:
+            model = ModelFactory.create_model(
+                config['model_name'],
+                num_classes=config['num_classes'],
+                pretrained=config['pretrained']
+            )
         model = model.to(device)
     except Exception as e:
         logger.logger.error(f"Failed to create model: {e}")
@@ -264,11 +285,19 @@ def main():
         data_dir_path = Path(args.data_dir)
         
         train_loader, val_loader, class_weights, class_names = create_data_loaders(
-            config=config,
-            data_dir=data_dir_path,  # FIXED: Pass Path object
+            config,
+            data_dir=data_dir_path,
             use_subset=args.use_subset,
-            subset_fraction=args.subset_fraction
+            subset_fraction=args.subset_fraction,
+            multi_task=args.multi_task
         )
+
+        # Log class names
+        if args.multi_task:
+            logger.info(f"Decade class names: {class_names['decade']}")
+            logger.info(f"Cluster class names: {class_names['cluster']}")
+        else:
+            logger.info(f"Class names: {class_names}")
     except FileNotFoundError as e:
         logger.logger.error(f"Data files not found: {e}")
         logger.logger.error("Please ensure data/splits/ directory contains train.json, val.json, test.json")
@@ -301,7 +330,8 @@ def main():
             config=config,
             device=device,
             experiment_dir=exp_dirs['root'],
-            logger=logger.logger
+            logger=logger.logger,
+            multi_task=args.multi_task  # Pass multi_task flag
         )
     except Exception as e:
         logger.logger.error(f"Failed to create trainer: {e}")

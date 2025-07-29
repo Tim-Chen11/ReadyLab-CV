@@ -5,34 +5,38 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 import numpy as np
 from pathlib import Path
 import json
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 from collections import Counter, defaultdict
 import logging
 
 from .url_dataset import URLDataset, CachedDataset, BaseDataset
 from .transforms import get_transforms_for_model
 from ..training.metrics import calculate_class_weights
+from ..training.trainer import collate_multitask_fn
 
 logger = logging.getLogger(__name__)
 
 
 def create_data_loaders(
-        config: Dict,
-        data_dir: Optional[Path] = None,
-        use_subset: bool = False,
-        subset_fraction: float = 0.1
-) -> Tuple[DataLoader, DataLoader, torch.Tensor, List[str]]:
+    config: Dict,
+    data_dir: Optional[Path] = None,
+    use_subset: bool = False,
+    subset_fraction: float = 0.1,
+    multi_task: bool = False  # New parameter for multi-task learning
+) -> Tuple[DataLoader, DataLoader, Optional[torch.Tensor], Union[List[str], Dict[str, List[str]]]]:
     """
-    Create train and validation data loaders
+    Create train and validation data loaders for single-task or multi-task learning.
 
     Args:
         config: Configuration dictionary
         data_dir: Data directory path
         use_subset: Whether to use a subset for quick testing
         subset_fraction: Fraction of data to use if use_subset is True
+        multi_task: Whether to enable multi-task learning (decade and cluster classification)
 
     Returns:
         train_loader, val_loader, class_weights, class_names
+        - class_names is a list for single-task, dict for multi-task
     """
     if data_dir is None:
         data_dir = Path(config.get('data_dir', '../data'))
@@ -51,34 +55,38 @@ def create_data_loaders(
     # Choose dataset class
     dataset_class = CachedDataset if config.get('use_cached', False) else URLDataset
 
-    # Create datasets
+    # Create datasets with multi_task flag
     if dataset_class == URLDataset:
         train_dataset = URLDataset(
             split_file=data_dir / 'splits' / 'train.json',
             transform=train_transform,
             cache_dir=data_dir / 'cache' / 'images',
             max_retries=config.get('max_download_retries', 3),
-            timeout=config.get('download_timeout', 10)
+            timeout=config.get('download_timeout', 10),
+            multi_task=multi_task  # Pass multi_task flag
         )
         val_dataset = URLDataset(
             split_file=data_dir / 'splits' / 'val.json',
             transform=val_transform,
             cache_dir=data_dir / 'cache' / 'images',
             max_retries=config.get('max_download_retries', 3),
-            timeout=config.get('download_timeout', 10)
+            timeout=config.get('download_timeout', 10),
+            multi_task=multi_task
         )
     else:
         train_dataset = CachedDataset(
             split_file=data_dir / 'splits' / 'train.json',
             images_dir=data_dir / 'cache' / 'images',
             transform=train_transform,
-            verify_images=True
+            verify_images=True,
+            multi_task=multi_task
         )
         val_dataset = CachedDataset(
             split_file=data_dir / 'splits' / 'val.json',
             images_dir=data_dir / 'cache' / 'images',
             transform=val_transform,
-            verify_images=True
+            verify_images=True,
+            multi_task=multi_task
         )
 
     # Create subset if requested
@@ -88,10 +96,10 @@ def create_data_loaders(
         val_dataset = create_subset_dataset(val_dataset, subset_fraction)
         logger.info(f"Using subset with {subset_fraction * 100}% of data")
 
-    # Calculate class weights if needed
+    # Calculate class weights
     class_weights = None
-    if config.get('use_class_weights', False):
-        labels = train_dataset.get_labels()
+    if not multi_task and config.get('use_class_weights', False):
+        labels = train_dataset.get_labels()  # Returns decade labels for single-task
         class_weights = calculate_class_weights(
             labels,
             train_dataset.num_classes,
@@ -99,13 +107,16 @@ def create_data_loaders(
         )
         logger.info(f"Class weights: {class_weights.numpy()}")
 
-    # Create sampler if using weighted sampling
+    # Create sampler if using weighted sampling (single-task only)
     train_sampler = None
-    if config.get('use_weighted_sampling', False):
+    if not multi_task and config.get('use_weighted_sampling', False):
         train_sampler = create_weighted_sampler(train_dataset)
-        shuffle = False  # Don't shuffle when using sampler
+        shuffle = False
     else:
         shuffle = True
+
+    # Set collate function for multi-task
+    collate_fn = collate_multitask_fn if multi_task else None
 
     # Create data loaders
     train_loader = DataLoader(
@@ -116,7 +127,8 @@ def create_data_loaders(
         num_workers=config.get('num_workers', 4),
         pin_memory=True,
         drop_last=True,
-        persistent_workers=config.get('num_workers', 4) > 0
+        persistent_workers=config.get('num_workers', 4) > 0,
+        collate_fn=collate_fn  # Use custom collate for multi-task
     )
 
     val_loader = DataLoader(
@@ -125,10 +137,20 @@ def create_data_loaders(
         shuffle=False,
         num_workers=config.get('num_workers', 4),
         pin_memory=True,
-        persistent_workers=config.get('num_workers', 4) > 0
+        persistent_workers=config.get('num_workers', 4) > 0,
+        collate_fn=collate_fn
     )
 
-    return train_loader, val_loader, class_weights, train_dataset.decades
+    # Handle class names
+    if multi_task:
+        class_names = {
+            'decade': train_dataset.decades,  # Assumes decades is available
+            'cluster': train_dataset.clusters  # Assumes clusters is available
+        }
+    else:
+        class_names = train_dataset.decades
+
+    return train_loader, val_loader, class_weights, class_names
 
 
 def create_weighted_sampler(dataset: BaseDataset) -> WeightedRandomSampler:

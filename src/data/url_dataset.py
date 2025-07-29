@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class BaseDataset(Dataset):
     """Base dataset class with common functionality"""
 
-    def __init__(self, split_file: str, transform=None):
+    def __init__(self, split_file: str, transform=None, multi_task: bool = False):
         """
         Args:
             split_file: Path to JSON file with image metadata
@@ -40,12 +40,33 @@ class BaseDataset(Dataset):
             self.data = json.load(f)
 
         self.transform = transform
+        self.multi_task = multi_task
 
         # Create label mapping for 5 decades
         self.decades = ['1960s', '1970s', '1980s', '1990s', '2000s']
         self.label_to_idx = {d: i for i, d in enumerate(self.decades)}
         self.idx_to_label = {i: d for i, d in enumerate(self.decades)}
         self.num_classes = len(self.decades)
+
+        if self.multi_task:
+            # Extract unique clusters from data
+            clusters = set()
+            for item in self.data:
+                cluster = item.get('cluster', 'unknown')
+                clusters.add(cluster)
+            
+            self.clusters = sorted(list(clusters))  # Sort for consistency
+            self.cluster_to_idx = {c: i for i, c in enumerate(self.clusters)}
+            self.idx_to_cluster = {i: c for i, c in enumerate(self.clusters)}
+            self.num_cluster_classes = len(self.clusters)
+            
+            logger.info(f"Multi-task mode: {self.num_decade_classes} decades, {self.num_cluster_classes} clusters")
+            logger.info(f"Clusters: {self.clusters}")
+        else:
+            self.clusters = None
+            self.cluster_to_idx = None
+            self.idx_to_cluster = None
+            self.num_cluster_classes = 0
 
         logger.info(f"Loaded dataset from {split_file} with {len(self.data)} images")
 
@@ -55,6 +76,12 @@ class BaseDataset(Dataset):
     def get_labels(self) -> List[int]:
         """Get all labels for computing class weights"""
         return [self.label_to_idx[item['decade']] for item in self.data]
+    
+    def get_cluster_labels(self) -> List[int]:
+        """Get all cluster labels for computing class weights (multi-task only)"""
+        if not self.multi_task:
+            raise ValueError("Cluster labels only available in multi-task mode")
+        return [self.cluster_to_idx[item.get('cluster', 'unknown')] for item in self.data]
 
     def get_metadata(self, idx: int) -> Dict:
         """Get metadata for an item"""
@@ -67,7 +94,8 @@ class BaseDataset(Dataset):
             'url': item.get('url', ''),
             'classification': item.get('classification', 'unknown'),
             'makers': item.get('makers', 'unknown'),
-            'country': item.get('country', 'unknown')
+            'country': item.get('country', 'unknown'),
+            'cluster': item.get('cluster', 'unknown')
         }
 
 
@@ -299,11 +327,12 @@ class URLDataset(BaseDataset):
         placeholder = np.random.randint(100, 150, (*size, 3), dtype=np.uint8)
         return Image.fromarray(placeholder)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, Dict]:
+    def __getitem__(self, idx: int):
         """
         Returns:
             image: Transformed image tensor
-            label: Decade label (0-4)
+            labels: If multi_task: dict with 'decade' and 'cluster' keys
+                    Otherwise: int decade label (0-4)
             metadata: Dictionary with item metadata
         """
         item = self.data[idx]
@@ -326,13 +355,21 @@ class URLDataset(BaseDataset):
             # Default transform if none provided
             image = transforms.ToTensor()(image)
 
-        # Get label
-        label = self.label_to_idx[item['decade']]
+        # Get labels
+        if self.multi_task:
+            decade_label = self.decade_to_idx[item['decade']]
+            cluster_label = self.cluster_to_idx[item.get('cluster', 'unknown')]
+            labels = {
+                'decade': decade_label,
+                'cluster': cluster_label
+            }
+        else:
+            labels = self.decade_to_idx[item['decade']]
 
         # Get metadata
         metadata = self.get_metadata(idx)
 
-        return image, label, {}
+        return image, labels, metadata
 
     def get_statistics(self) -> Dict:
         """Get dataset statistics"""
@@ -388,7 +425,7 @@ class CachedDataset(BaseDataset):
         url_hash = hashlib.md5(url.encode()).hexdigest()
         return self.images_dir / f"{url_hash}.jpg"
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, Dict]:
+    def __getitem__(self, idx: int):
         item = self.data[idx]
 
         # Load cached image
@@ -403,13 +440,21 @@ class CachedDataset(BaseDataset):
         if self.transform:
             image = self.transform(image)
 
-        # Get label
-        label = self.label_to_idx[item['decade']]
+        # Get labels
+        if self.multi_task:
+            decade_label = self.decade_to_idx[item['decade']]
+            cluster_label = self.cluster_to_idx[item.get('cluster', 'unknown')]
+            labels = {
+                'decade': decade_label,
+                'cluster': cluster_label
+            }
+        else:
+            labels = self.decade_to_idx[item['decade']]
 
         # Get metadata
         metadata = self.get_metadata(idx)
 
-        return image, label, {}
+        return image, labels, metadata
 
 
 def download_dataset_images(

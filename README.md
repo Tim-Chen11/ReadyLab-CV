@@ -13,3 +13,5 @@ scripts:
 transforms.py: Pure image preprocessing logic
 url_dataset.py: Pure data loading logic
 data_utils.py: Business logic that combines everything
+
+ Training command example: python -m scripts.train --model_name resnet50 --use_cached --epochs 30 --batch_size 32 --num_workers 8 --learning_rate 0.001 --weight_decay 0.01 --loss label_smoothing --label_smoothing 0.2 --early_stopping 10 --use_amp --multi_task --decade_weight 1.0 --cluster_weight 1.0 
