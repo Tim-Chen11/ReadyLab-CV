@@ -415,7 +415,7 @@ class Trainer:
 
             # Save checkpoint
             self.save_checkpoint(
-                optimizer, scheduler, epoch, val_metrics, is_best
+                optimizer, scheduler, epoch, val_metrics, is_best, class_names
             )
 
             # Early stopping
@@ -444,7 +444,8 @@ class Trainer:
             scheduler: Optional[torch.optim.lr_scheduler._LRScheduler],
             epoch: int,
             val_metrics: Dict[str, float],
-            is_best: bool = False
+            is_best: bool = False,
+            class_names: Optional[Union[List[str], Dict[str, List[str]]]] = None
     ):
         """Save model checkpoint"""
         checkpoint = {
@@ -456,7 +457,8 @@ class Trainer:
             'best_metric': self.best_val_metric,
             'config': self.config,
             'metrics_history': self.metrics_history,
-            'multi_task': self.multi_task  # Save multi-task flag
+            'multi_task': self.multi_task,  # Save multi-task flag
+            'class_names': class_names  # Save class names for inference
         }
 
         # Save last checkpoint

@@ -272,7 +272,10 @@ class ModelFactory:
 
         # Load checkpoint if provided
         if checkpoint_path:
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            try:
+                checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=True)
+            except:
+                checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
             if 'model_state_dict' in checkpoint:
                 try:
                     model.load_state_dict(checkpoint['model_state_dict'])

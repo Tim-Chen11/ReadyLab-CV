@@ -169,7 +169,7 @@ def main():
         'scheduler': args.scheduler,
         'use_amp': args.use_amp,
         'gradient_clip_val': args.gradient_clip,
-        'num_classes': 5,  # 5 decades
+        'num_classes': 3,  # 3 decades (1980s, 1990s, 2000s)
         'early_stopping': args.early_stopping,
         'seed': args.seed,
         'data_dir': args.data_dir,
@@ -412,7 +412,8 @@ def main():
                 scheduler=scheduler,
                 epoch=config['epochs'],
                 val_metrics=results['metrics_history']['val'][-1] if results.get('metrics_history') and results['metrics_history']['val'] else {},
-                is_best=False
+                is_best=False,
+                class_names=class_names
             )
             logger.info(f"Final checkpoint saved to: {final_path}")
         except Exception as e:

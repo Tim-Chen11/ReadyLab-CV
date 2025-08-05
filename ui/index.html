@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decade Classifier</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 40px 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .upload-section {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .drop-zone {
+            border: 3px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background-color: #fafafa;
+        }
+
+        .drop-zone:hover {
+            border-color: #667eea;
+            background-color: #f0f0ff;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #667eea;
+            background-color: #e0e7ff;
+            transform: scale(1.02);
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: transform 0.2s ease;
+            margin: 10px;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .results-section {
+            display: none;
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .preview-container {
+            text-align: center;
+        }
+
+        .preview-image {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .predictions {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .prediction-item {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .prediction-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .prediction-label {
+            font-weight: bold;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+
+        .confidence-badge {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .confidence-bar {
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.5s ease;
+        }
+
+        .top-predictions {
+            margin-top: 15px;
+        }
+
+        .top-pred-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .top-pred-item:last-child {
+            border-bottom: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            display: none;
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+
+        .api-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .api-status.online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .api-status.offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="api-status offline" id="apiStatus">
+        API: Checking...
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>🕰️ Decade Classifier</h1>
+            <p class="subtitle">Upload an image to discover which decade it belongs to!</p>
+        </header>
+
+        <div class="upload-section">
+            <div class="drop-zone" id="dropZone">
+                <div class="upload-icon">📸</div>
+                <p>Drag and drop an image here or click to browse</p>
+                <input type="file" id="fileInput" class="file-input" accept="image/*">
+            </div>
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Analyzing image...</p>
+            </div>
+            <div class="error-message" id="errorMessage"></div>
+        </div>
+
+        <div class="results-section" id="resultsSection">
+            <h2>Results</h2>
+            <div class="results-grid">
+                <div class="preview-container">
+                    <h3>Uploaded Image</h3>
+                    <img id="previewImage" class="preview-image" alt="Uploaded image">
+                </div>
+                <div class="predictions" id="predictionsContainer">
+                    <!-- Predictions will be inserted here -->
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="btn" onclick="resetUpload()">Analyze Another Image</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const loading = document.getElementById('loading');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultsSection = document.getElementById('resultsSection');
+        const previewImage = document.getElementById('previewImage');
+        const predictionsContainer = document.getElementById('predictionsContainer');
+        const apiStatus = document.getElementById('apiStatus');
+
+        // Check API status
+        async function checkAPIStatus() {
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                const data = await response.json();
+                
+                if (data.status === 'healthy' && data.model_loaded) {
+                    apiStatus.textContent = 'API: Online';
+                    apiStatus.classList.remove('offline');
+                    apiStatus.classList.add('online');
+                } else {
+                    apiStatus.textContent = 'API: Model not loaded';
+                    apiStatus.classList.remove('online');
+                    apiStatus.classList.add('offline');
+                }
+            } catch (error) {
+                apiStatus.textContent = 'API: Offline';
+                apiStatus.classList.remove('online');
+                apiStatus.classList.add('offline');
+            }
+        }
+
+        // Check API status on load and periodically
+        checkAPIStatus();
+        setInterval(checkAPIStatus, 5000);
+
+        // File upload handling
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        });
+
+        // Drag and drop handling
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                handleFile(file);
+            } else {
+                showError('Please upload an image file');
+            }
+        });
+
+        async function handleFile(file) {
+            // Show loading
+            loading.style.display = 'block';
+            errorMessage.style.display = 'none';
+            resultsSection.style.display = 'none';
+
+            // Preview image
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            // Upload to API
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(`${API_URL}/predict`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayResults(data);
+                
+            } catch (error) {
+                showError(`Error: ${error.message}. Make sure the API server is running.`);
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function displayResults(data) {
+            if (data.status !== 'success') {
+                showError('Prediction failed');
+                return;
+            }
+
+            let html = '';
+            
+            // Display decade prediction
+            if (data.predictions.decade) {
+                const decade = data.predictions.decade;
+                html += `
+                    <div class="prediction-item">
+                        <div class="prediction-header">
+                            <span class="prediction-label">Decade</span>
+                            <span class="confidence-badge">${(decade.confidence * 100).toFixed(1)}% confident</span>
+                        </div>
+                        <h3>${decade.prediction}</h3>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${decade.confidence * 100}%"></div>
+                        </div>
+                        
+                        <div class="top-predictions">
+                            <h4>Top 3 Predictions:</h4>
+                            ${decade.top3.map((pred, idx) => `
+                                <div class="top-pred-item">
+                                    <span>${idx + 1}. ${pred.class}</span>
+                                    <span>${(pred.confidence * 100).toFixed(1)}%</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Display cluster prediction if multi-task
+            if (data.predictions.cluster) {
+                const cluster = data.predictions.cluster;
+                html += `
+                    <div class="prediction-item">
+                        <div class="prediction-header">
+                            <span class="prediction-label">Cluster</span>
+                            <span class="confidence-badge">${(cluster.confidence * 100).toFixed(1)}% confident</span>
+                        </div>
+                        <h3>${cluster.prediction}</h3>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${cluster.confidence * 100}%"></div>
+                        </div>
+                        
+                        <div class="top-predictions">
+                            <h4>Top 3 Predictions:</h4>
+                            ${cluster.top3.map((pred, idx) => `
+                                <div class="top-pred-item">
+                                    <span>${idx + 1}. ${pred.class}</span>
+                                    <span>${(pred.confidence * 100).toFixed(1)}%</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Add model info
+            if (data.model_info) {
+                html += `
+                    <div style="margin-top: 20px; font-size: 0.9em; color: #666;">
+                        Model: ${data.model_info.model_name} 
+                        ${data.model_info.multi_task ? '(Multi-task)' : '(Single-task)'}
+                    </div>
+                `;
+            }
+
+            predictionsContainer.innerHTML = html;
+            resultsSection.style.display = 'block';
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        function resetUpload() {
+            fileInput.value = '';
+            resultsSection.style.display = 'none';
+            errorMessage.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
