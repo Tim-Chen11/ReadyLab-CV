@@ -182,8 +182,10 @@ def main():
         'multi_task': args.multi_task,
         'decade_weight': args.decade_weight,
         'cluster_weight': args.cluster_weight,
-        'num_decade_classes': 5,  # Number of decade classes
-        'num_cluster_classes': 5,  # Replace with actual number of cluster classes
+        'num_decade_classes': 5,  # Number of decade classes - will be updated from data
+        'num_cluster_classes': 10,  # Default number of cluster classes - will be updated from data
+        # Set appropriate monitor metric for multi-task
+        'monitor_metric': 'accuracy' if not args.multi_task else 'accuracy',  # Uses combined accuracy for multi-task
     })
 
     # Override specific parameters if provided
@@ -205,6 +207,18 @@ def main():
         if args.use_subset and not (0 < args.subset_fraction <= 1):
             print(f"Error: subset_fraction {args.subset_fraction} must be in (0, 1]")
             sys.exit(1)
+        
+        # Validate multi-task specific parameters
+        if args.multi_task:
+            if args.decade_weight <= 0:
+                print(f"Error: decade_weight {args.decade_weight} must be positive")
+                sys.exit(1)
+            if args.cluster_weight <= 0:
+                print(f"Error: cluster_weight {args.cluster_weight} must be positive")
+                sys.exit(1)
+            if args.decade_weight + args.cluster_weight == 0:
+                print(f"Error: At least one of decade_weight or cluster_weight must be non-zero")
+                sys.exit(1)
     except KeyError as e:
         print(f"Error: Missing required config parameter: {e}")
         sys.exit(1)
@@ -255,7 +269,47 @@ def main():
     except Exception as e:
         logger.warning(f"Failed to backup code: {e}")
 
-    # Create model
+    # First, get the actual number of classes from the data
+    if args.multi_task:
+        # For multi-task, we need to know the actual number of clusters
+        # We'll get this after creating the data loaders
+        pass
+    
+    # Create data loaders first to get the actual class counts
+    try:
+        # Convert string path to Path object as expected by data_utils
+        data_dir_path = Path(args.data_dir)
+        
+        train_loader, val_loader, class_weights, class_names = create_data_loaders(
+            config,
+            data_dir=data_dir_path,
+            use_subset=args.use_subset,
+            subset_fraction=args.subset_fraction,
+            multi_task=args.multi_task
+        )
+
+        # Log class names
+        if args.multi_task:
+            logger.info(f"Decade class names: {class_names['decade']}")
+            logger.info(f"Cluster class names: {class_names['cluster']}")
+            # Update config with actual number of classes
+            config['num_decade_classes'] = len(class_names['decade'])
+            config['num_cluster_classes'] = len(class_names['cluster'])
+        else:
+            logger.info(f"Class names: {class_names}")
+            config['num_classes'] = len(class_names)
+    except FileNotFoundError as e:
+        logger.error(f"Data files not found: {e}")
+        logger.error("Please ensure data/splits/ directory contains train.json, val.json, test.json")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to create data loaders: {e}")
+        sys.exit(1)
+
+    logger.info(f"Train samples: {len(train_loader.dataset)}")
+    logger.info(f"Val samples: {len(val_loader.dataset)}")
+
+    # Create model with correct number of classes
     try:
         if args.multi_task:
             # Multi-task model - pass num_classes as a dictionary
@@ -267,8 +321,8 @@ def main():
                 },
                 multi_task=True,
                 multitask_config={
-                    'hidden_dim': 512,
-                    'dropout_rate': 0.3
+                    'hidden_dim': config.get('multitask_hidden_dim', 512),
+                    'dropout_rate': config.get('multitask_dropout', 0.3)
                 },
                 pretrained=config['pretrained']
             )
@@ -289,44 +343,23 @@ def main():
     logger.info(f"Model parameters: {param_count['total']:,} "
                       f"(Trainable: {param_count['trainable']:,})")
 
-    # FIXED: Create data loaders with consistent parameters
-    try:
-        # Convert string path to Path object as expected by data_utils
-        data_dir_path = Path(args.data_dir)
-        
-        train_loader, val_loader, class_weights, class_names = create_data_loaders(
-            config,
-            data_dir=data_dir_path,
-            use_subset=args.use_subset,
-            subset_fraction=args.subset_fraction,
-            multi_task=args.multi_task
-        )
-
-        # Log class names
-        if args.multi_task:
-            logger.info(f"Decade class names: {class_names['decade']}")
-            logger.info(f"Cluster class names: {class_names['cluster']}")
-        else:
-            logger.info(f"Class names: {class_names}")
-    except FileNotFoundError as e:
-        logger.error(f"Data files not found: {e}")
-        logger.error("Please ensure data/splits/ directory contains train.json, val.json, test.json")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Failed to create data loaders: {e}")
-        sys.exit(1)
-
-    logger.info(f"Train samples: {len(train_loader.dataset)}")
-    logger.info(f"Val samples: {len(val_loader.dataset)}")
-    logger.info(f"Class names: {class_names}")
-
     # Create loss function
     if args.multi_task:
         # Multi-task loss
+        loss_config = config.get('loss', {})
+        loss_name = loss_config.get('name', 'cross_entropy')
+        loss_params = loss_config.get('params', {})
+        
+        # Update loss params with class weights if requested
+        if args.class_weights and class_weights is not None:
+            loss_params['class_weights'] = class_weights
+            logger.info(f"Using class weights for multi-task loss")
+        
         criterion = ModelFactory.create_multitask_loss(
             decade_weight=args.decade_weight,
             cluster_weight=args.cluster_weight,
-            loss_type='cross_entropy'
+            loss_type=loss_name,
+            loss_params=loss_params
         )
     else:
         # Single-task loss

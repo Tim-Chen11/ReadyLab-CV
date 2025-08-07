@@ -155,18 +155,21 @@ class MultiTaskLoss(nn.Module):
         self, 
         decade_weight: float = 1.0,
         cluster_weight: float = 1.0,
-        loss_type: str = 'cross_entropy'
+        loss_type: str = 'cross_entropy',
+        loss_params: Optional[Dict] = None
     ):
         super().__init__()
         
         self.decade_weight = decade_weight
         self.cluster_weight = cluster_weight
         
-        if loss_type == 'cross_entropy':
-            self.decade_criterion = nn.CrossEntropyLoss()
-            self.cluster_criterion = nn.CrossEntropyLoss()
-        else:
-            raise ValueError(f"Unsupported loss type: {loss_type}")
+        # Import losses module to access all loss functions
+        from ..training.losses import get_loss_function
+        
+        # Create loss functions for each task
+        loss_params = loss_params or {}
+        self.decade_criterion = get_loss_function(loss_type, **loss_params)
+        self.cluster_criterion = get_loss_function(loss_type, **loss_params)
     
     def forward(
         self, 
@@ -307,13 +310,15 @@ class ModelFactory:
         cls, 
         decade_weight: float = 1.0, 
         cluster_weight: float = 1.0,
-        loss_type: str = 'cross_entropy'
+        loss_type: str = 'cross_entropy',
+        loss_params: Optional[Dict] = None
     ) -> MultiTaskLoss:
         """Create multi-task loss function"""
         return MultiTaskLoss(
             decade_weight=decade_weight,
             cluster_weight=cluster_weight,
-            loss_type=loss_type
+            loss_type=loss_type,
+            loss_params=loss_params
         )
 
     @classmethod

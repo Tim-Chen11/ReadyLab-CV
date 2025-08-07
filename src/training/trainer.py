@@ -358,8 +358,16 @@ class Trainer:
             if scheduler and self.config.get('scheduler_step', 'epoch') == 'epoch':
                 if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                     # Use appropriate metric for scheduler
-                    monitor_metric = 'total_loss' if self.multi_task else 'loss'
-                    scheduler.step(val_metrics[monitor_metric])
+                    if self.multi_task:
+                        # For multi-task, use total_loss if available, otherwise use accuracy
+                        monitor_metric = 'total_loss' if 'total_loss' in val_metrics else 'accuracy'
+                    else:
+                        monitor_metric = 'loss'
+                    
+                    if monitor_metric in val_metrics:
+                        scheduler.step(val_metrics[monitor_metric])
+                    else:
+                        self.logger.warning(f"Monitor metric '{monitor_metric}' not found in validation metrics")
                 else:
                     scheduler.step()
 
@@ -389,24 +397,43 @@ class Trainer:
                 )
 
             # Log detailed classification report every few epochs
-            # if epoch % self.config.get('log_report_every', 5) == 0:
-            #     self._log_classification_reports(predictions, labels, class_names)
+            if epoch % self.config.get('log_report_every', 5) == 0:
+                self._log_classification_reports(predictions, labels, class_names)
 
             # Save metrics history
-            # self.metrics_history['train'].append({
-            #     'epoch': epoch,
-            #     **train_metrics,
-            #     'lr': current_lr
-            # })
-            # self.metrics_history['val'].append({
-            #     'epoch': epoch,
-            #     **val_metrics
-            # })
+            self.metrics_history['train'].append({
+                'epoch': epoch,
+                **train_metrics,
+                'lr': current_lr
+            })
+            self.metrics_history['val'].append({
+                'epoch': epoch,
+                **val_metrics
+            })
 
             # Check if best model
             monitor_metric = self.config.get('monitor_metric', 'accuracy')
+            
+            # Ensure the monitor metric exists in val_metrics
+            if monitor_metric not in val_metrics:
+                available_metrics = list(val_metrics.keys())
+                self.logger.warning(f"Monitor metric '{monitor_metric}' not found. Available metrics: {available_metrics}")
+                # Fallback to a sensible default
+                if 'accuracy' in val_metrics:
+                    monitor_metric = 'accuracy'
+                elif 'total_loss' in val_metrics:
+                    monitor_metric = 'total_loss'
+                else:
+                    monitor_metric = available_metrics[0] if available_metrics else 'accuracy'
+                self.logger.info(f"Using fallback monitor metric: {monitor_metric}")
+            
             val_metric = val_metrics[monitor_metric]
-            is_best = val_metric > self.best_val_metric
+            
+            # For loss metrics, lower is better
+            if 'loss' in monitor_metric:
+                is_best = val_metric < self.best_val_metric if self.best_val_metric != 0 else True
+            else:
+                is_best = val_metric > self.best_val_metric
 
             if is_best:
                 self.best_val_metric = val_metric

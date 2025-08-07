@@ -119,15 +119,17 @@ def create_data_loaders(
     collate_fn = collate_multitask_fn if multi_task else None
 
     # Create data loaders
+    num_workers = config.get('num_workers', 4)
+    
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['batch_size'],
         shuffle=shuffle,
         sampler=train_sampler,
-        num_workers=config.get('num_workers', 4),
+        num_workers=num_workers,
         pin_memory=True,
         drop_last=True,
-        persistent_workers=config.get('num_workers', 4) > 0,
+        persistent_workers=True if num_workers > 0 else False,
         collate_fn=collate_fn  # Use custom collate for multi-task
     )
 
@@ -135,9 +137,9 @@ def create_data_loaders(
         val_dataset,
         batch_size=config['batch_size'],
         shuffle=False,
-        num_workers=config.get('num_workers', 4),
+        num_workers=num_workers,
         pin_memory=True,
-        persistent_workers=config.get('num_workers', 4) > 0,
+        persistent_workers=True if num_workers > 0 else False,
         collate_fn=collate_fn
     )
 
