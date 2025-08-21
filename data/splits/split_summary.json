@@ -2,24 +2,24 @@
   "train_products": 691,
   "val_products": 150,
   "test_products": 150,
-  "train_images": 2401,
-  "val_images": 538,
-  "test_images": 539,
+  "train_images": 691,
+  "val_images": 150,
+  "test_images": 150,
   "splits_by_decade": {
     "train": {
-      "2000s": 1805,
-      "1990s": 517,
-      "1980s": 79
+      "2000s": 514,
+      "1990s": 153,
+      "1980s": 24
     },
     "val": {
-      "2000s": 403,
-      "1990s": 116,
-      "1980s": 19
+      "2000s": 111,
+      "1990s": 33,
+      "1980s": 6
     },
     "test": {
-      "2000s": 406,
-      "1990s": 114,
-      "1980s": 19
+      "1990s": 33,
+      "2000s": 111,
+      "1980s": 6
     }
   }
 }

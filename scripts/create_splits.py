@@ -20,14 +20,16 @@ def create_product_aware_splits(metadata_path, output_dir,
         data = json.load(f)
     
     if source_filter == 'mobile':
-        # Filter for Mobile Phone Museum
+        # Filter for Mobile Phone Museum AND only first images (img_0)
         filtered_data = []
         for entry in data:
             if entry.get('source') == 'https://www.mobilephonemuseum.com/':
-                filtered_data.append(entry)
+                # Only include first image of each product
+                if 'img_0' in entry.get('id', '') or entry.get('image_index') == 0:
+                    filtered_data.append(entry)
         
         data = filtered_data  # Replace data with filtered data
-        print(f"Mobile Phone Museum entries: {len(data)}")
+        print(f"Mobile Phone Museum first images (img_0): {len(data)}")
         
         if len(data) == 0:
             print("No Mobile Phone Museum entries found!")
