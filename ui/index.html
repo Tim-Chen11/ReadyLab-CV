@@ -251,6 +251,19 @@
             background: #f8d7da;
             color: #721c24;
         }
+        
+        .similar-images-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        @media (max-width: 480px) {
+            .similar-images-section > div > div {
+                grid-template-columns: 1fr !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -304,6 +317,19 @@
         const previewImage = document.getElementById('previewImage');
         const predictionsContainer = document.getElementById('predictionsContainer');
         const apiStatus = document.getElementById('apiStatus');
+        
+        // Load training data for similar images
+        let trainingData = [];
+        async function loadTrainingData() {
+            try {
+                const response = await fetch('../data/splits/train.json');
+                trainingData = await response.json();
+                console.log(`Loaded ${trainingData.length} training samples`);
+            } catch (error) {
+                console.error('Failed to load training data:', error);
+            }
+        }
+        loadTrainingData();
 
         // Check API status
         async function checkAPIStatus() {
@@ -391,15 +417,26 @@
                 }
 
                 const data = await response.json();
+                console.log('API Response:', data); // Debug log
                 displayResults(data);
                 
             } catch (error) {
+                console.error('Error details:', error);
                 showError(`Error: ${error.message}. Make sure the API server is running.`);
             } finally {
                 loading.style.display = 'none';
             }
         }
 
+        // Function to find similar images from the same cluster
+        function findSimilarImages(clusterNumber) {
+            const similarImages = trainingData.filter(item => item.cluster === clusterNumber);
+            
+            // Randomly select up to 3 images
+            const shuffled = similarImages.sort(() => 0.5 - Math.random());
+            return shuffled.slice(0, 3);
+        }
+        
         function displayResults(data) {
             if (data.status !== 'success') {
                 showError('Prediction failed');
@@ -407,6 +444,7 @@
             }
 
             let html = '';
+            let predictedCluster = null;
             
             // Display decade prediction
             if (data.predictions.decade) {
@@ -438,13 +476,24 @@
             // Display cluster prediction if multi-task
             if (data.predictions.cluster) {
                 const cluster = data.predictions.cluster;
+                // Extract cluster number from prediction
+                // Handle both string format ("Cluster_2") and direct number format
+                if (typeof cluster.prediction === 'string') {
+                    predictedCluster = parseInt(cluster.prediction.replace('Cluster_', ''));
+                } else if (typeof cluster.prediction === 'number') {
+                    predictedCluster = cluster.prediction;
+                } else {
+                    console.log('Unexpected cluster prediction format:', cluster.prediction);
+                    predictedCluster = null;
+                }
+                
                 html += `
                     <div class="prediction-item">
                         <div class="prediction-header">
                             <span class="prediction-label">Cluster</span>
                             <span class="confidence-badge">${(cluster.confidence * 100).toFixed(1)}% confident</span>
                         </div>
-                        <h3>${cluster.prediction}</h3>
+                        <h3>${typeof cluster.prediction === 'string' ? cluster.prediction : `Cluster ${cluster.prediction}`}</h3>
                         <div class="confidence-bar">
                             <div class="confidence-fill" style="width: ${cluster.confidence * 100}%"></div>
                         </div>
@@ -462,6 +511,36 @@
                 `;
             }
 
+            // Add similar images from the same cluster
+            if (predictedCluster !== null && trainingData.length > 0) {
+                const similarImages = findSimilarImages(predictedCluster);
+                
+                if (similarImages.length > 0) {
+                    html += `
+                        <div class="similar-images-section" style="margin-top: 30px;">
+                            <h4 style="color: #667eea; margin-bottom: 15px;">Similar Images from Cluster ${predictedCluster}:</h4>
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                                ${similarImages.map(img => `
+                                    <div style="text-align: center;">
+                                        <img src="${img.url}" 
+                                             style="width: 100%; max-height: 150px; object-fit: cover; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                                             alt="${img.name || 'Training image'}">
+                                        <div style="display: none; padding: 20px; background: #f0f0f0; border-radius: 8px; font-size: 0.8em;">
+                                            Image failed to load
+                                        </div>
+                                        <p style="font-size: 0.8em; margin-top: 5px; color: #666;">
+                                            ${img.name || 'Unknown'}<br>
+                                            <span style="color: #667eea;">${img.decade || 'Unknown decade'}</span>
+                                        </p>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
             // Add model info
             if (data.model_info) {
                 html += `

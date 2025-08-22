@@ -62,32 +62,39 @@ class ModelInference:
             is_training=False
         )
         
-        # Class names - use the 5 decades as requested
-        # NOTE: Your model was trained with only 3 decades (1980s, 1990s, 2000s)
-        # Setting labels as requested, but be aware of the mapping
-        
-        # Get number of classes the model was trained with
-        num_model_classes = self.config.get('num_classes', 5)
-        
-        # Set decades as requested
-        self.decades = ['1960s', '1970s', '1980s', '1990s', '2000s']
-        
-        # Ensure we have the right number of classes
-        if num_model_classes != len(self.decades):
-            if num_model_classes > len(self.decades):
-                # Pad with extra classes
-                self.decades = self.decades + [f'Unknown_{i}' for i in range(len(self.decades), num_model_classes)]
+        # Get class names from checkpoint or use defaults
+        if 'class_names' in self.checkpoint:
+            # Use class names from checkpoint if available
+            if self.multi_task:
+                self.decades = self.checkpoint['class_names'].get('decade', ['1980s', '1990s', '2000s'])
+                self.clusters = self.checkpoint['class_names'].get('cluster', [f'Cluster_{i}' for i in range(5)])
             else:
-                # Trim to model size
-                self.decades = self.decades[:num_model_classes]
+                self.decades = self.checkpoint['class_names']
+                if not isinstance(self.decades, list):
+                    self.decades = ['1980s', '1990s', '2000s']
+                self.clusters = [f'Cluster_{i}' for i in range(5)]
+        else:
+            # Use correct default labels based on actual training data
+            # Model was trained on: 1980s (index 0), 1990s (index 1), 2000s (index 2)
+            num_model_classes = self.config.get('num_classes', 3)
+            
+            # Set correct decade labels
+            if num_model_classes == 3:
+                self.decades = ['1980s', '1990s', '2000s']
+            elif num_model_classes == 5:
+                # If model expects 5 classes but was trained on 3, pad appropriately
+                self.decades = ['1980s', '1990s', '2000s', 'Unknown_3', 'Unknown_4']
+            else:
+                # Fallback for other configurations
+                self.decades = ['1980s', '1990s', '2000s'] + [f'Unknown_{i}' for i in range(3, num_model_classes)]
+            
+            # Handle clusters
+            self.clusters = [f'Cluster_{i}' for i in range(self.config.get('num_cluster_classes', 5))]
         
-        # Handle clusters
-        self.clusters = [f'Cluster_{i}' for i in range(self.config.get('num_cluster_classes', 5))]
-        
-        # Note about the actual training data mapping
-        print(f"Model has {num_model_classes} output classes")
+        print(f"Model configured for {len(self.decades)} decade classes")
         print(f"Decade labels: {self.decades}")
-        print("Note: Model was trained with data from 1980s (index 0), 1990s (index 1), 2000s (index 2)")
+        if self.multi_task:
+            print(f"Cluster labels: {self.clusters[:5]}...")
     
     def _create_model(self):
         """Create and load model"""
