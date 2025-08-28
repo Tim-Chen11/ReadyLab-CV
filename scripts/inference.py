@@ -66,35 +66,26 @@ class ModelInference:
         if 'class_names' in self.checkpoint:
             # Use class names from checkpoint if available
             if self.multi_task:
-                self.decades = self.checkpoint['class_names'].get('decade', ['1980s', '1990s', '2000s'])
-                self.clusters = self.checkpoint['class_names'].get('cluster', [f'Cluster_{i}' for i in range(5)])
+                self.decades = self.checkpoint['class_names'].get('decade', ['1960s', '1970s', '1980s', '1990s', '2000s'])
+                self.clusters = self.checkpoint['class_names'].get('cluster', [0, 1, 2, 3, 4])
+                self.devices = self.checkpoint['class_names'].get('device', ['calculator', 'phone'])
             else:
                 self.decades = self.checkpoint['class_names']
                 if not isinstance(self.decades, list):
-                    self.decades = ['1980s', '1990s', '2000s']
-                self.clusters = [f'Cluster_{i}' for i in range(5)]
+                    self.decades = ['1960s', '1970s', '1980s', '1990s', '2000s']
+                self.clusters = [0, 1, 2, 3, 4]
+                self.devices = ['calculator', 'phone']
         else:
-            # Use correct default labels based on actual training data
-            # Model was trained on: 1980s (index 0), 1990s (index 1), 2000s (index 2)
-            num_model_classes = self.config.get('num_classes', 3)
-            
-            # Set correct decade labels
-            if num_model_classes == 3:
-                self.decades = ['1980s', '1990s', '2000s']
-            elif num_model_classes == 5:
-                # If model expects 5 classes but was trained on 3, pad appropriately
-                self.decades = ['1980s', '1990s', '2000s', 'Unknown_3', 'Unknown_4']
-            else:
-                # Fallback for other configurations
-                self.decades = ['1980s', '1990s', '2000s'] + [f'Unknown_{i}' for i in range(3, num_model_classes)]
-            
-            # Handle clusters
-            self.clusters = [f'Cluster_{i}' for i in range(self.config.get('num_cluster_classes', 5))]
+            # Use default labels
+            self.decades = ['1960s', '1970s', '1980s', '1990s', '2000s']
+            self.clusters = [0, 1, 2, 3, 4]
+            self.devices = ['calculator', 'phone']
         
         print(f"Model configured for {len(self.decades)} decade classes")
         print(f"Decade labels: {self.decades}")
         if self.multi_task:
-            print(f"Cluster labels: {self.clusters[:5]}...")
+            print(f"Cluster labels: {self.clusters}")
+            print(f"Device labels: {self.devices}")
     
     def _create_model(self):
         """Create and load model"""
@@ -104,12 +95,18 @@ class ModelInference:
             # Multi-task model
             num_classes = {
                 'decade': self.config.get('num_decade_classes', 5),
-                'cluster': self.config.get('num_cluster_classes', 5)
+                'cluster': self.config.get('num_cluster_classes', 5),
+                'device': self.config.get('num_device_classes', 2)
             }
             self.model = ModelFactory.create_model(
                 model_name,
                 num_classes=num_classes,
                 multi_task=True,
+                multitask_config={
+                    'hidden_dim': self.config.get('multitask_hidden_dim', 512),
+                    'dropout_rate': self.config.get('multitask_dropout', 0.3),
+                    'num_device_classes': self.config.get('num_device_classes', 2)
+                },
                 pretrained=False
             )
         else:
@@ -152,6 +149,15 @@ class ModelInference:
             decade_probs = F.softmax(output['decade'], dim=1)
             cluster_probs = F.softmax(output['cluster'], dim=1)
             
+            # Check if device output exists
+            if 'device' in output:
+                device_probs = F.softmax(output['device'], dim=1)
+                device_prob, device_idx = device_probs.max(1)
+            else:
+                device_probs = None
+                device_prob = None
+                device_idx = None
+            
             # Get top predictions
             decade_prob, decade_idx = decade_probs.max(1)
             cluster_prob, cluster_idx = cluster_probs.max(1)
@@ -190,6 +196,13 @@ class ModelInference:
                     ]
                 }
             }
+            
+            # Add device prediction if available
+            if device_probs is not None:
+                result['device'] = {
+                    'prediction': self.devices[device_idx.item()],
+                    'confidence': device_prob.item()
+                }
         else:
             # Single-task predictions
             probs = F.softmax(output, dim=1)

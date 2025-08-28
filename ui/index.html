@@ -322,9 +322,14 @@
         let trainingData = [];
         async function loadTrainingData() {
             try {
-                const response = await fetch('../data/splits/train.json');
-                trainingData = await response.json();
-                console.log(`Loaded ${trainingData.length} training samples`);
+                const response = await fetch(`${API_URL}/training_data`);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    trainingData = result.data;
+                    console.log(`Loaded ${trainingData.length} training samples`);
+                } else {
+                    console.error('Failed to load training data:', result.message);
+                }
             } catch (error) {
                 console.error('Failed to load training data:', error);
             }
@@ -428,13 +433,24 @@
             }
         }
 
-        // Function to find similar images from the same cluster
-        function findSimilarImages(clusterNumber) {
-            const similarImages = trainingData.filter(item => item.cluster === clusterNumber);
+        // Function to find similar images from the same cluster AND same decade
+        function findSimilarImages(clusterNumber, decade) {
+            console.log(`Finding similar images for cluster ${clusterNumber}, decade ${decade}`);
+            console.log(`Total training data: ${trainingData.length}`);
+            
+            // Filter by cluster and decade
+            const similarImages = trainingData.filter(item => {
+                return item.cluster === clusterNumber && item.decade === decade;
+            });
+            
+            console.log(`Found ${similarImages.length} matching images`);
             
             // Randomly select up to 3 images
             const shuffled = similarImages.sort(() => 0.5 - Math.random());
-            return shuffled.slice(0, 3);
+            const selected = shuffled.slice(0, 3);
+            console.log(`Selected ${selected.length} images to display`);
+            
+            return selected;
         }
         
         function displayResults(data) {
@@ -445,10 +461,18 @@
 
             let html = '';
             let predictedCluster = null;
+            let predictedDevice = null;
+            let predictedDecade = null;
+            
+            // Get device prediction but don't display it prominently
+            if (data.predictions.device) {
+                predictedDevice = data.predictions.device.prediction;
+            }
             
             // Display decade prediction
             if (data.predictions.decade) {
                 const decade = data.predictions.decade;
+                predictedDecade = decade.prediction;
                 html += `
                     <div class="prediction-item">
                         <div class="prediction-header">
@@ -476,16 +500,9 @@
             // Display cluster prediction if multi-task
             if (data.predictions.cluster) {
                 const cluster = data.predictions.cluster;
-                // Extract cluster number from prediction
-                // Handle both string format ("Cluster_2") and direct number format
-                if (typeof cluster.prediction === 'string') {
-                    predictedCluster = parseInt(cluster.prediction.replace('Cluster_', ''));
-                } else if (typeof cluster.prediction === 'number') {
-                    predictedCluster = cluster.prediction;
-                } else {
-                    console.log('Unexpected cluster prediction format:', cluster.prediction);
-                    predictedCluster = null;
-                }
+                // Handle cluster prediction - it's just a number (0, 1, 2, 3, 4)
+                predictedCluster = cluster.prediction;
+                console.log('Cluster prediction received:', predictedCluster, 'Type:', typeof predictedCluster);
                 
                 html += `
                     <div class="prediction-item">
@@ -493,7 +510,7 @@
                             <span class="prediction-label">Cluster</span>
                             <span class="confidence-badge">${(cluster.confidence * 100).toFixed(1)}% confident</span>
                         </div>
-                        <h3>${typeof cluster.prediction === 'string' ? cluster.prediction : `Cluster ${cluster.prediction}`}</h3>
+                        <h3>Cluster ${cluster.prediction}</h3>
                         <div class="confidence-bar">
                             <div class="confidence-fill" style="width: ${cluster.confidence * 100}%"></div>
                         </div>
@@ -502,7 +519,7 @@
                             <h4>Top 3 Predictions:</h4>
                             ${cluster.top3.map((pred, idx) => `
                                 <div class="top-pred-item">
-                                    <span>${idx + 1}. ${pred.class}</span>
+                                    <span>${idx + 1}. Cluster ${pred.class}</span>
                                     <span>${(pred.confidence * 100).toFixed(1)}%</span>
                                 </div>
                             `).join('')}
@@ -511,14 +528,26 @@
                 `;
             }
 
-            // Add similar images from the same cluster
-            if (predictedCluster !== null && trainingData.length > 0) {
-                const similarImages = findSimilarImages(predictedCluster);
+            // Add similar images from the same cluster AND same decade
+            console.log(`Predicted cluster: ${predictedCluster}, Predicted decade: ${predictedDecade}`);
+            console.log(`Training data available: ${trainingData.length} items`);
+            
+            if (predictedCluster !== null && predictedDecade !== null && trainingData.length > 0) {
+                let similarImages;
+                let sectionTitle;
+                
+                // Filter by cluster and decade
+                similarImages = findSimilarImages(predictedCluster, predictedDecade);
+                sectionTitle = `Similar Images from ${predictedDecade}, Cluster ${predictedCluster}:`;
+                
+                console.log(`Similar images found: ${similarImages.length}`);
                 
                 if (similarImages.length > 0) {
                     html += `
                         <div class="similar-images-section" style="margin-top: 30px;">
-                            <h4 style="color: #667eea; margin-bottom: 15px;">Similar Images from Cluster ${predictedCluster}:</h4>
+                            <h4 style="color: #667eea; margin-bottom: 15px;">
+                                ${sectionTitle}
+                            </h4>
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
                                 ${similarImages.map(img => `
                                     <div style="text-align: center;">
@@ -531,7 +560,10 @@
                                         </div>
                                         <p style="font-size: 0.8em; margin-top: 5px; color: #666;">
                                             ${img.name || 'Unknown'}<br>
-                                            <span style="color: #667eea;">${img.decade || 'Unknown decade'}</span>
+                                            <span style="color: #667eea;">${img.decade || 'Unknown decade'} - Cluster ${img.cluster}</span><br>
+                                            <span style="color: #28a745; font-weight: bold;">
+                                                ${img.classification ? img.classification.toUpperCase() : 'Unknown device'}
+                                            </span>
                                         </p>
                                     </div>
                                 `).join('')}

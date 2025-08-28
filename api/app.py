@@ -83,15 +83,19 @@ async def startup_event():
     )
     multi_task = os.getenv("MULTI_TASK", "false").lower() == "true"
     
+    print(f"Starting API server...")
+    print(f"Multi-task mode: {multi_task}")
+    
     if Path(checkpoint_path).exists():
         success = load_model(checkpoint_path, multi_task)
         if success:
-            print(f"Model loaded successfully from {checkpoint_path}")
+            print(f"✅ Model loaded successfully from {checkpoint_path}")
         else:
-            print("Failed to load model")
+            print("⚠️ Failed to load model - API will run without model")
     else:
-        print(f"Checkpoint not found at {checkpoint_path}")
+        print(f"⚠️ Checkpoint not found at {checkpoint_path}")
         print("Set MODEL_CHECKPOINT environment variable to point to your model")
+        print("API will run without model (training data endpoint will still work)")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -126,6 +130,39 @@ async def root():
     </html>
     """
 
+
+@app.get("/training_data")
+async def get_training_data():
+    """Get training data for similar images display"""
+    import json
+    import math
+    
+    def clean_nan_values(obj):
+        """Recursively clean NaN values from data structure"""
+        if isinstance(obj, dict):
+            return {k: clean_nan_values(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [clean_nan_values(item) for item in obj]
+        elif isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return obj
+        return obj
+    
+    try:
+        train_file = Path("data/splits/train.json")
+        if train_file.exists():
+            with open(train_file, 'r') as f:
+                data = json.load(f)
+            
+            # Clean any NaN or Inf values
+            cleaned_data = clean_nan_values(data)
+            
+            return {"status": "success", "data": cleaned_data}
+        else:
+            return {"status": "error", "message": "Training data not found"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
