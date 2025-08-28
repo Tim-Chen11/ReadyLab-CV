@@ -3,7 +3,8 @@
     "allow": [
       "WebFetch(domain:www.datamath.org)",
       "Bash(python:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(pip install:*)"
     ],
     "deny": [],
     "ask": []

@@ -451,7 +451,9 @@ def main():
         logger.info("Training interrupted by user")
         sys.exit(0)
     except Exception as e:
+        import traceback
         logger.error(f"Training failed: {e}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         sys.exit(1)
 
     # Save final model state if specified

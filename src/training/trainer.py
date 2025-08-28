@@ -124,8 +124,25 @@ class Trainer:
             if self.multi_task:
                 # labels is a dict with 'decade' and 'cluster' keys
                 if isinstance(labels, dict):
-                    labels = {k: v.to(self.device) for k, v in labels.items()}
+                    processed_labels = {}
+                    for k, v in labels.items():
+                        if isinstance(v, torch.Tensor):
+                            try:
+                                processed_labels[k] = v.to(self.device)
+                            except Exception as e:
+                                self.logger.error(f"Error moving label '{k}' to device: {e}")
+                                self.logger.error(f"Label key: {k}, Value type: {type(v)}, Device: {self.device}")
+                                raise
+                        elif v == 'device':
+                            # Skip if v is the string 'device' - this seems to be metadata
+                            self.logger.warning(f"Skipping non-tensor label '{k}' with value '{v}'")
+                            continue
+                        else:
+                            self.logger.error(f"Label '{k}' is not a tensor: {type(v)}, value: {v}")
+                            raise TypeError(f"Expected tensor for label '{k}', got {type(v)}")
+                    labels = processed_labels
                 else:
+                    self.logger.error(f"Labels is not a dict in multi-task mode: {type(labels)}")
                     raise ValueError("Multi-task mode requires labels to be a dictionary")
             else:
                 # labels is a tensor
@@ -224,21 +241,48 @@ class Trainer:
         if self.multi_task:
             all_predictions = {'decade': [], 'cluster': []}
             all_labels = {'decade': [], 'cluster': []}
-            # Check if device task exists
-            if hasattr(self, 'has_device_task'):
-                all_predictions['device'] = []
-                all_labels['device'] = []
+            # Always initialize device lists for multi-task since we have device labels
+            all_predictions['device'] = []
+            all_labels['device'] = []
         else:
             all_predictions = []
             all_labels = []
 
         with torch.no_grad():
-            for images, labels, _ in tqdm(dataloader, desc=f'Epoch {epoch} - Validation'):
-                images = images.to(self.device)
+            for batch_idx, (images, labels, _) in enumerate(tqdm(dataloader, desc=f'Epoch {epoch} - Validation')):
+                try:
+                    images = images.to(self.device)
+                except Exception as e:
+                    self.logger.error(f"Error moving images to device at batch {batch_idx}: {e}")
+                    self.logger.error(f"Device: {self.device}, Images type: {type(images)}")
+                    raise
                 
                 # Handle labels
                 if self.multi_task:
-                    labels = {k: v.to(self.device) for k, v in labels.items()}
+                    # Ensure labels is a dictionary and all values are tensors
+                    if isinstance(labels, dict):
+                        processed_labels = {}
+                        for k, v in labels.items():
+                            if isinstance(v, torch.Tensor):
+                                try:
+                                    processed_labels[k] = v.to(self.device)
+                                except Exception as e:
+                                    self.logger.error(f"Error moving label '{k}' to device: {e}")
+                                    self.logger.error(f"Label key: {k}, Value type: {type(v)}, Device: {self.device}")
+                                    self.logger.error(f"Tensor shape: {v.shape if hasattr(v, 'shape') else 'N/A'}")
+                                    raise
+                            elif v == 'device':
+                                # Skip if v is the string 'device' - this seems to be metadata
+                                self.logger.warning(f"Skipping non-tensor label '{k}' with value '{v}'")
+                                continue
+                            else:
+                                self.logger.error(f"Label '{k}' is not a tensor: {type(v)}, value: {v}")
+                                raise TypeError(f"Expected tensor for label '{k}', got {type(v)}")
+                        labels = processed_labels
+                    else:
+                        self.logger.error(f"Labels is not a dict in multi-task mode: {type(labels)}")
+                        self.logger.error(f"Labels content: {labels}")
+                        raise ValueError("Multi-task mode requires labels to be a dictionary")
                 else:
                     labels = labels.to(self.device)
 
@@ -275,8 +319,6 @@ class Trainer:
                         _, device_pred = outputs['device'].max(1)
                         all_predictions['device'].extend(device_pred.cpu().numpy())
                         all_labels['device'].extend(labels['device'].cpu().numpy())
-                        if not hasattr(self, 'has_device_task'):
-                            self.has_device_task = True
                     
                 else:
                     loss = self.criterion(outputs, labels)
