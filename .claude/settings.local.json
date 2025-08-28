@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:www.datamath.org)"
+      "WebFetch(domain:www.datamath.org)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

@@ -34,6 +34,19 @@ def create_product_aware_splits(metadata_path, output_dir,
         if len(data) == 0:
             print("No Mobile Phone Museum entries found!")
             return
+    elif source_filter == 'phone_and_calculator':
+        # Filter for Mobile Phone Museum and Datamath Calculator sources
+        filtered_data = []
+        for entry in data:
+            source = entry.get('source', '')
+            # Include Mobile Phone Museum OR Datamath Calculator Museum
+            if source in ['https://www.mobilephonemuseum.com/', 'http://www.datamath.org/']:
+                # Only include first image of each product
+                if 'img_0' in entry.get('id', '') or entry.get('image_index') == 0:
+                    filtered_data.append(entry)
+        
+        data = filtered_data
+        print(f"Mobile Phone Museum + Calculator Museum first images (img_0): {len(data)}")
             
     # Group by product_id to keep product images together
     products = defaultdict(list)
@@ -171,5 +184,5 @@ if __name__ == "__main__":
         str(project_root / 'data/splits'),
         val_ratio=0.15,
         test_ratio=0.15,
-        source_filter='mobile'
+        source_filter='phone_and_calculator'  # Include Mobile Phone Museum + Datamath Calculator Museum
     )
