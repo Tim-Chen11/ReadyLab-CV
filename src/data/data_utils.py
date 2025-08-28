@@ -149,6 +149,9 @@ def create_data_loaders(
             'decade': train_dataset.decades,  # Assumes decades is available
             'cluster': train_dataset.clusters  # Assumes clusters is available
         }
+        # Add device class names if available
+        if hasattr(train_dataset, 'devices') and train_dataset.devices:
+            class_names['device'] = train_dataset.devices
     else:
         class_names = train_dataset.decades
 

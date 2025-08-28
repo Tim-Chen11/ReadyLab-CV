@@ -61,13 +61,39 @@ class BaseDataset(Dataset):
             self.idx_to_cluster = {i: c for i, c in enumerate(self.clusters)}
             self.num_cluster_classes = len(self.clusters)
             
-            logger.info(f"Multi-task mode: {self.num_classes} decades, {self.num_cluster_classes} clusters")
+            # Extract device types (phone vs calculator)
+            devices = set()
+            for item in self.data:
+                # Normalize classification: Phone -> phone, calculator -> calculator
+                classification = item.get('classification', 'unknown').lower()
+                if classification == 'phone':
+                    devices.add('phone')
+                elif classification == 'calculator':
+                    devices.add('calculator')
+                else:
+                    devices.add('unknown')
+            
+            # Remove unknown if we have both phone and calculator
+            if len(devices) > 2 and 'unknown' in devices:
+                devices.remove('unknown')
+            
+            self.devices = sorted(list(devices))  # Sort for consistency
+            self.device_to_idx = {d: i for i, d in enumerate(self.devices)}
+            self.idx_to_device = {i: d for i, d in enumerate(self.devices)}
+            self.num_device_classes = len(self.devices)
+            
+            logger.info(f"Multi-task mode: {self.num_classes} decades, {self.num_cluster_classes} clusters, {self.num_device_classes} device types")
             logger.info(f"Clusters: {self.clusters}")
+            logger.info(f"Device types: {self.devices}")
         else:
             self.clusters = None
             self.cluster_to_idx = None
             self.idx_to_cluster = None
             self.num_cluster_classes = 0
+            self.devices = None
+            self.device_to_idx = None
+            self.idx_to_device = None
+            self.num_device_classes = 0
 
         logger.info(f"Loaded dataset from {split_file} with {len(self.data)} images")
         logger.info(f"Decades in data: {self.decades}")
@@ -85,6 +111,22 @@ class BaseDataset(Dataset):
         if not self.multi_task:
             raise ValueError("Cluster labels only available in multi-task mode")
         return [self.cluster_to_idx[item.get('cluster', 0)] for item in self.data]
+    
+    def get_device_labels(self) -> List[int]:
+        """Get all device labels for computing class weights (multi-task only)"""
+        if not self.multi_task:
+            raise ValueError("Device labels only available in multi-task mode")
+        labels = []
+        for item in self.data:
+            classification = item.get('classification', 'unknown').lower()
+            if classification == 'phone':
+                device = 'phone'
+            elif classification == 'calculator':
+                device = 'calculator'
+            else:
+                device = 'unknown' if 'unknown' in self.devices else self.devices[0]
+            labels.append(self.device_to_idx[device])
+        return labels
 
     def get_metadata(self, idx: int) -> Dict:
         """Get metadata for an item"""
@@ -102,6 +144,13 @@ class BaseDataset(Dataset):
         
         if self.multi_task:
             metadata['cluster'] = item.get('cluster', 0)
+            classification = item.get('classification', 'unknown').lower()
+            if classification == 'phone':
+                metadata['device'] = 'phone'
+            elif classification == 'calculator':
+                metadata['device'] = 'calculator'
+            else:
+                metadata['device'] = 'unknown' if 'unknown' in self.devices else self.devices[0]
             
         return metadata
 
@@ -368,9 +417,21 @@ class URLDataset(BaseDataset):
         if self.multi_task:
             decade_label = self.label_to_idx[item['decade']]
             cluster_label = self.cluster_to_idx[item.get('cluster', 0)]
+            
+            # Get device label
+            classification = item.get('classification', 'unknown').lower()
+            if classification == 'phone':
+                device = 'phone'
+            elif classification == 'calculator':
+                device = 'calculator'
+            else:
+                device = 'unknown' if 'unknown' in self.devices else self.devices[0]
+            device_label = self.device_to_idx[device]
+            
             labels = {
                 'decade': decade_label,
-                'cluster': cluster_label
+                'cluster': cluster_label,
+                'device': device_label
             }
         else:
             labels = self.label_to_idx[item['decade']]
@@ -455,9 +516,21 @@ class CachedDataset(BaseDataset):
         if self.multi_task:
             decade_label = self.label_to_idx[item['decade']]
             cluster_label = self.cluster_to_idx[item.get('cluster', 0)]
+            
+            # Get device label
+            classification = item.get('classification', 'unknown').lower()
+            if classification == 'phone':
+                device = 'phone'
+            elif classification == 'calculator':
+                device = 'calculator'
+            else:
+                device = 'unknown' if 'unknown' in self.devices else self.devices[0]
+            device_label = self.device_to_idx[device]
+            
             labels = {
                 'decade': decade_label,
-                'cluster': cluster_label
+                'cluster': cluster_label,
+                'device': device_label
             }
         else:
             labels = self.label_to_idx[item['decade']]

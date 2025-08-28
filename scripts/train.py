@@ -109,11 +109,13 @@ def parse_arguments():
                         help='GPU ID to use')
     
     parser.add_argument('--multi_task', action='store_true', 
-                        help='Enable multi-task learning for decade and cluster classification')
+                        help='Enable multi-task learning for decade, cluster, and device classification')
     parser.add_argument('--decade_weight', type=float, default=1.0, 
                         help='Weight for decade loss in multi-task learning')
     parser.add_argument('--cluster_weight', type=float, default=1.0, 
                         help='Weight for cluster loss in multi-task learning')
+    parser.add_argument('--device_weight', type=float, default=1.0, 
+                        help='Weight for device (phone/calculator) loss in multi-task learning')
 
     return parser.parse_args()
 
@@ -123,6 +125,8 @@ def main():
 
     # Set random seed
     set_seed(args.seed)
+
+    print("111111")
 
     # Get device with improved handling
     device = get_device(args.gpu)
@@ -182,8 +186,10 @@ def main():
         'multi_task': args.multi_task,
         'decade_weight': args.decade_weight,
         'cluster_weight': args.cluster_weight,
+        'device_weight': args.device_weight,
         'num_decade_classes': 5,  # Number of decade classes - will be updated from data
         'num_cluster_classes': 10,  # Default number of cluster classes - will be updated from data
+        'num_device_classes': 2,  # phone vs calculator
         # Set appropriate monitor metric for multi-task
         'monitor_metric': 'accuracy' if not args.multi_task else 'accuracy',  # Uses combined accuracy for multi-task
     })
@@ -216,8 +222,11 @@ def main():
             if args.cluster_weight <= 0:
                 print(f"Error: cluster_weight {args.cluster_weight} must be positive")
                 sys.exit(1)
-            if args.decade_weight + args.cluster_weight == 0:
-                print(f"Error: At least one of decade_weight or cluster_weight must be non-zero")
+            if args.device_weight <= 0:
+                print(f"Error: device_weight {args.device_weight} must be positive")
+                sys.exit(1)
+            if args.decade_weight + args.cluster_weight + args.device_weight == 0:
+                print(f"Error: At least one task weight must be non-zero")
                 sys.exit(1)
     except KeyError as e:
         print(f"Error: Missing required config parameter: {e}")
@@ -295,6 +304,9 @@ def main():
             # Update config with actual number of classes
             config['num_decade_classes'] = len(class_names['decade'])
             config['num_cluster_classes'] = len(class_names['cluster'])
+            if 'device' in class_names:
+                logger.info(f"Device class names: {class_names['device']}")
+                config['num_device_classes'] = len(class_names['device'])
         else:
             logger.info(f"Class names: {class_names}")
             config['num_classes'] = len(class_names)
@@ -313,16 +325,21 @@ def main():
     try:
         if args.multi_task:
             # Multi-task model - pass num_classes as a dictionary
+            num_classes = {
+                'decade': config['num_decade_classes'],
+                'cluster': config['num_cluster_classes']
+            }
+            if 'num_device_classes' in config:
+                num_classes['device'] = config['num_device_classes']
+            
             model = ModelFactory.create_model(
                 config['model_name'],
-                num_classes={
-                    'decade': config['num_decade_classes'],
-                    'cluster': config['num_cluster_classes']
-                },
+                num_classes=num_classes,
                 multi_task=True,
                 multitask_config={
                     'hidden_dim': config.get('multitask_hidden_dim', 512),
-                    'dropout_rate': config.get('multitask_dropout', 0.3)
+                    'dropout_rate': config.get('multitask_dropout', 0.3),
+                    'num_device_classes': config.get('num_device_classes', 2)
                 },
                 pretrained=config['pretrained']
             )
@@ -358,6 +375,7 @@ def main():
         criterion = ModelFactory.create_multitask_loss(
             decade_weight=args.decade_weight,
             cluster_weight=args.cluster_weight,
+            device_weight=args.device_weight,
             loss_type=loss_name,
             loss_params=loss_params
         )

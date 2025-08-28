@@ -69,19 +69,33 @@ class Trainer:
         if self.multi_task:
             # Multi-task accuracy calculation
             accuracies = {}
+            num_tasks = 0
+            total_acc = 0
             
             # Decade accuracy
             _, decade_pred = outputs['decade'].max(1)
             decade_acc = decade_pred.eq(labels['decade']).float().mean().item()
             accuracies['decade_accuracy'] = decade_acc
+            total_acc += decade_acc
+            num_tasks += 1
             
             # Cluster accuracy
             _, cluster_pred = outputs['cluster'].max(1)
             cluster_acc = cluster_pred.eq(labels['cluster']).float().mean().item()
             accuracies['cluster_accuracy'] = cluster_acc
+            total_acc += cluster_acc
+            num_tasks += 1
             
-            # Overall accuracy (average of both tasks)
-            accuracies['accuracy'] = (decade_acc + cluster_acc) / 2
+            # Device accuracy (if present)
+            if 'device' in outputs and 'device' in labels:
+                _, device_pred = outputs['device'].max(1)
+                device_acc = device_pred.eq(labels['device']).float().mean().item()
+                accuracies['device_accuracy'] = device_acc
+                total_acc += device_acc
+                num_tasks += 1
+            
+            # Overall accuracy (average of all tasks)
+            accuracies['accuracy'] = total_acc / num_tasks
             
             return accuracies
         else:
@@ -163,6 +177,8 @@ class Trainer:
                 metric_tracker.update('total_loss', losses['total_loss'].item())
                 metric_tracker.update('decade_loss', losses['decade_loss'].item())
                 metric_tracker.update('cluster_loss', losses['cluster_loss'].item())
+                if 'device_loss' in losses:
+                    metric_tracker.update('device_loss', losses['device_loss'].item())
                 
                 # Track accuracies
                 accuracies = self._calculate_accuracy(outputs, labels)
@@ -170,11 +186,14 @@ class Trainer:
                     metric_tracker.update(acc_name, acc_value)
                 
                 # Update progress bar
-                pbar.set_postfix({
+                postfix_dict = {
                     'loss': f'{metric_tracker.avg("total_loss"):.4f}',
                     'dec_acc': f'{metric_tracker.avg("decade_accuracy") * 100:.1f}%',
                     'cls_acc': f'{metric_tracker.avg("cluster_accuracy") * 100:.1f}%'
-                })
+                }
+                if 'device_accuracy' in accuracies:
+                    postfix_dict['dev_acc'] = f'{metric_tracker.avg("device_accuracy") * 100:.1f}%'
+                pbar.set_postfix(postfix_dict)
             else:
                 # Single-task metrics
                 metric_tracker.update('loss', loss.item())
@@ -205,6 +224,10 @@ class Trainer:
         if self.multi_task:
             all_predictions = {'decade': [], 'cluster': []}
             all_labels = {'decade': [], 'cluster': []}
+            # Check if device task exists
+            if hasattr(self, 'has_device_task'):
+                all_predictions['device'] = []
+                all_labels['device'] = []
         else:
             all_predictions = []
             all_labels = []
@@ -230,6 +253,8 @@ class Trainer:
                     metric_tracker.update('total_loss', losses['total_loss'].item())
                     metric_tracker.update('decade_loss', losses['decade_loss'].item())
                     metric_tracker.update('cluster_loss', losses['cluster_loss'].item())
+                    if 'device_loss' in losses:
+                        metric_tracker.update('device_loss', losses['device_loss'].item())
                     
                     # Update accuracy metrics
                     accuracies = self._calculate_accuracy(outputs, labels)
@@ -244,6 +269,14 @@ class Trainer:
                     all_predictions['cluster'].extend(cluster_pred.cpu().numpy())
                     all_labels['decade'].extend(labels['decade'].cpu().numpy())
                     all_labels['cluster'].extend(labels['cluster'].cpu().numpy())
+                    
+                    # Collect device predictions if present
+                    if 'device' in outputs and 'device' in labels:
+                        _, device_pred = outputs['device'].max(1)
+                        all_predictions['device'].extend(device_pred.cpu().numpy())
+                        all_labels['device'].extend(labels['device'].cpu().numpy())
+                        if not hasattr(self, 'has_device_task'):
+                            self.has_device_task = True
                     
                 else:
                     loss = self.criterion(outputs, labels)
@@ -278,7 +311,11 @@ class Trainer:
         """Log detailed classification reports"""
         if self.multi_task:
             # Multi-task classification reports
-            for task in ['decade', 'cluster']:
+            tasks = ['decade', 'cluster']
+            if 'device' in predictions:
+                tasks.append('device')
+                
+            for task in tasks:
                 self.logger.info(f"\n{task.capitalize()} Classification Report:")
                 task_class_names = class_names.get(task) if class_names else None
                 
@@ -375,17 +412,24 @@ class Trainer:
             current_lr = optimizer.param_groups[0]['lr']
             
             if self.multi_task:
-                self.logger.info(
+                log_msg = (
                     f"Epoch {epoch}/{num_epochs} - "
                     f"Train Loss: {train_metrics['total_loss']:.4f} "
-                    f"(Dec: {train_metrics['decade_loss']:.4f}, Cls: {train_metrics['cluster_loss']:.4f}), "
-                    f"Train Acc: {train_metrics['accuracy'] * 100:.2f}% "
-                    f"(Dec: {train_metrics['decade_accuracy'] * 100:.2f}%, Cls: {train_metrics['cluster_accuracy'] * 100:.2f}%), "
-                    f"Val Loss: {val_metrics['total_loss']:.4f}, "
-                    f"Val Acc: {val_metrics['accuracy'] * 100:.2f}% "
-                    f"(Dec: {val_metrics['decade_accuracy'] * 100:.2f}%, Cls: {val_metrics['cluster_accuracy'] * 100:.2f}%), "
-                    f"LR: {current_lr:.6f}"
+                    f"(Dec: {train_metrics['decade_loss']:.4f}, Cls: {train_metrics['cluster_loss']:.4f}"
                 )
+                if 'device_loss' in train_metrics:
+                    log_msg += f", Dev: {train_metrics['device_loss']:.4f}"
+                log_msg += f"), Train Acc: {train_metrics['accuracy'] * 100:.2f}% "
+                log_msg += f"(Dec: {train_metrics['decade_accuracy'] * 100:.2f}%, Cls: {train_metrics['cluster_accuracy'] * 100:.2f}%"
+                if 'device_accuracy' in train_metrics:
+                    log_msg += f", Dev: {train_metrics['device_accuracy'] * 100:.2f}%"
+                log_msg += f"), Val Loss: {val_metrics['total_loss']:.4f}, "
+                log_msg += f"Val Acc: {val_metrics['accuracy'] * 100:.2f}% "
+                log_msg += f"(Dec: {val_metrics['decade_accuracy'] * 100:.2f}%, Cls: {val_metrics['cluster_accuracy'] * 100:.2f}%"
+                if 'device_accuracy' in val_metrics:
+                    log_msg += f", Dev: {val_metrics['device_accuracy'] * 100:.2f}%"
+                log_msg += f"), LR: {current_lr:.6f}"
+                self.logger.info(log_msg)
             else:
                 self.logger.info(
                     f"Epoch {epoch}/{num_epochs} - "
@@ -549,13 +593,18 @@ def collate_multitask_fn(batch):
     
     # Handle labels - check if multi-task or single task
     if isinstance(labels[0], dict):
-        # Multi-task: separate decade and cluster labels
+        # Multi-task: separate decade, cluster, and device labels
         decade_labels = torch.tensor([label['decade'] for label in labels])
         cluster_labels = torch.tensor([label['cluster'] for label in labels])
-        labels = {
+        labels_dict = {
             'decade': decade_labels,
             'cluster': cluster_labels
         }
+        # Add device labels if present
+        if 'device' in labels[0]:
+            device_labels = torch.tensor([label['device'] for label in labels])
+            labels_dict['device'] = device_labels
+        labels = labels_dict
     else:
         # Single task: just decade labels
         labels = torch.tensor(labels)

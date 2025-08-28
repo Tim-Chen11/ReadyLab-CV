@@ -12,13 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 class MultiTaskHead(nn.Module):
-    """Multi-task head for decade and cluster prediction"""
+    """Multi-task head for decade, cluster, and device type prediction"""
     
     def __init__(
         self, 
         in_features: int,
         num_decade_classes: int = 5,
         num_cluster_classes: int = 10,
+        num_device_classes: int = 2,  # phone or calculator
         hidden_dim: int = 512,
         dropout_rate: float = 0.3
     ):
@@ -26,6 +27,7 @@ class MultiTaskHead(nn.Module):
         
         self.num_decade_classes = num_decade_classes
         self.num_cluster_classes = num_cluster_classes
+        self.num_device_classes = num_device_classes
         
         # Shared feature extractor
         self.shared_features = nn.Sequential(
@@ -52,12 +54,20 @@ class MultiTaskHead(nn.Module):
             nn.Linear(hidden_dim // 2, num_cluster_classes)
         )
         
+        # New device type head (phone vs calculator)
+        self.device_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim // 2, num_device_classes)
+        )
+        
         # Initialize weights
         self._initialize_weights()
     
     def _initialize_weights(self):
         """Initialize weights properly"""
-        for m in [self.shared_features, self.decade_head, self.cluster_head]:
+        for m in [self.shared_features, self.decade_head, self.cluster_head, self.device_head]:
             for layer in m:
                 if isinstance(layer, nn.Linear):
                     nn.init.kaiming_normal_(layer.weight)
@@ -69,10 +79,12 @@ class MultiTaskHead(nn.Module):
         
         decade_logits = self.decade_head(shared_features)
         cluster_logits = self.cluster_head(shared_features)
+        device_logits = self.device_head(shared_features)
         
         return {
             'decade': decade_logits,
-            'cluster': cluster_logits
+            'cluster': cluster_logits,
+            'device': device_logits
         }
 
 
@@ -84,6 +96,7 @@ class MultiTaskModel(nn.Module):
         backbone: nn.Module,
         num_decade_classes: int = 5,
         num_cluster_classes: int = 10,
+        num_device_classes: int = 2,
         hidden_dim: int = 512,
         dropout_rate: float = 0.3
     ):
@@ -127,6 +140,7 @@ class MultiTaskModel(nn.Module):
             in_features=in_features,
             num_decade_classes=num_decade_classes,
             num_cluster_classes=num_cluster_classes,
+            num_device_classes=num_device_classes,
             hidden_dim=hidden_dim,
             dropout_rate=dropout_rate
         )
@@ -144,7 +158,8 @@ class MultiTaskModel(nn.Module):
             logits = self.forward(x)
             return {
                 'decade': torch.softmax(logits['decade'], dim=1),
-                'cluster': torch.softmax(logits['cluster'], dim=1)
+                'cluster': torch.softmax(logits['cluster'], dim=1),
+                'device': torch.softmax(logits['device'], dim=1)
             }
 
 
@@ -155,6 +170,7 @@ class MultiTaskLoss(nn.Module):
         self, 
         decade_weight: float = 1.0,
         cluster_weight: float = 1.0,
+        device_weight: float = 1.0,
         loss_type: str = 'cross_entropy',
         loss_params: Optional[Dict] = None
     ):
@@ -162,6 +178,7 @@ class MultiTaskLoss(nn.Module):
         
         self.decade_weight = decade_weight
         self.cluster_weight = cluster_weight
+        self.device_weight = device_weight
         
         # Import losses module to access all loss functions
         from ..training.losses import get_loss_function
@@ -170,6 +187,7 @@ class MultiTaskLoss(nn.Module):
         loss_params = loss_params or {}
         self.decade_criterion = get_loss_function(loss_type, **loss_params)
         self.cluster_criterion = get_loss_function(loss_type, **loss_params)
+        self.device_criterion = get_loss_function(loss_type, **loss_params)
     
     def forward(
         self, 
@@ -179,14 +197,17 @@ class MultiTaskLoss(nn.Module):
         """Calculate combined loss"""
         decade_loss = self.decade_criterion(predictions['decade'], targets['decade'])
         cluster_loss = self.cluster_criterion(predictions['cluster'], targets['cluster'])
+        device_loss = self.device_criterion(predictions['device'], targets['device'])
         
         total_loss = (self.decade_weight * decade_loss + 
-                     self.cluster_weight * cluster_loss)
+                     self.cluster_weight * cluster_loss +
+                     self.device_weight * device_loss)
         
         return {
             'total_loss': total_loss,
             'decade_loss': decade_loss,
-            'cluster_loss': cluster_loss
+            'cluster_loss': cluster_loss,
+            'device_loss': device_loss
         }
 
 
@@ -229,10 +250,12 @@ class ModelFactory:
             if isinstance(num_classes, dict):
                 num_decade_classes = num_classes.get('decade', 5)
                 num_cluster_classes = num_classes.get('cluster', 10)
+                num_device_classes = num_classes.get('device', 2)
             else:
-                # Assume single number is for decades, cluster classes need to be specified
+                # Assume single number is for decades, cluster and device classes need to be specified
                 num_decade_classes = num_classes
                 num_cluster_classes = multitask_config.get('num_cluster_classes', 10) if multitask_config else 10
+                num_device_classes = multitask_config.get('num_device_classes', 2) if multitask_config else 2
             
             # Create backbone with dummy classifier (will be replaced)
             backbone = timm.create_model(
@@ -247,12 +270,13 @@ class ModelFactory:
                 backbone=backbone,
                 num_decade_classes=num_decade_classes,
                 num_cluster_classes=num_cluster_classes,
+                num_device_classes=num_device_classes,
                 hidden_dim=multitask_config.get('hidden_dim', 512),
                 dropout_rate=multitask_config.get('dropout_rate', 0.3)
             )
             
             logger.info(f"Created multi-task model: {model_name}")
-            logger.info(f"Decade classes: {num_decade_classes}, Cluster classes: {num_cluster_classes}")
+            logger.info(f"Decade classes: {num_decade_classes}, Cluster classes: {num_cluster_classes}, Device classes: {num_device_classes}")
             
         else:
             # Single-task model creation (original behavior)
@@ -310,6 +334,7 @@ class ModelFactory:
         cls, 
         decade_weight: float = 1.0, 
         cluster_weight: float = 1.0,
+        device_weight: float = 1.0,
         loss_type: str = 'cross_entropy',
         loss_params: Optional[Dict] = None
     ) -> MultiTaskLoss:
@@ -317,6 +342,7 @@ class ModelFactory:
         return MultiTaskLoss(
             decade_weight=decade_weight,
             cluster_weight=cluster_weight,
+            device_weight=device_weight,
             loss_type=loss_type,
             loss_params=loss_params
         )
