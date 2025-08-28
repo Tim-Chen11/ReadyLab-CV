@@ -37,26 +37,46 @@ class BaseDataset(Dataset):
         """
         # Load metadata
         with open(split_file, 'r') as f:
-            self.data = json.load(f)
+            all_data = json.load(f)
+        
+        # Filter out items with cluster -1 (failed feature extraction) in multi-task mode
+        if multi_task:
+            self.data = [item for item in all_data if item.get('cluster', 0) != -1]
+            if len(self.data) < len(all_data):
+                logger.info(f"Filtered out {len(all_data) - len(self.data)} items with cluster=-1")
+        else:
+            self.data = all_data
 
         self.transform = transform
         self.multi_task = multi_task
 
-        # Create label mapping for decades (dynamically from data)
+        # Create label mapping for decades
+        # Use ALL possible decades to ensure consistency between train/val/test
+        # This prevents class mismatch when a decade exists in train but not val
+        ALL_DECADES = ['1960s', '1970s', '1980s', '1990s', '2000s']
         decades_in_data = set(item['decade'] for item in self.data)
-        self.decades = sorted(list(decades_in_data))  # Sort for consistency
+        
+        # Use all decades to maintain consistent indexing
+        self.decades = ALL_DECADES
+        logger.info(f"Using fixed decade classes: {self.decades}")
+        logger.info(f"Decades actually in this split: {sorted(list(decades_in_data))}")
         self.label_to_idx = {d: i for i, d in enumerate(self.decades)}
         self.idx_to_label = {i: d for i, d in enumerate(self.decades)}
         self.num_classes = len(self.decades)
 
         if self.multi_task:
-            # Extract unique clusters from data
-            clusters = set()
+            # Use fixed cluster classes to ensure consistency
+            # Clusters should be 0-4 (5 clusters total)
+            ALL_CLUSTERS = [0, 1, 2, 3, 4]
+            clusters_in_data = set()
             for item in self.data:
                 cluster = item.get('cluster', 0)
-                clusters.add(cluster)
+                # Note: -1 items already filtered out above
+                clusters_in_data.add(cluster)
             
-            self.clusters = sorted(list(clusters))  # Sort for consistency
+            self.clusters = ALL_CLUSTERS  # Use fixed set for consistency
+            logger.info(f"Using fixed cluster classes: {self.clusters}")
+            logger.info(f"Clusters actually in this split: {sorted(list(clusters_in_data))}")
             self.cluster_to_idx = {c: i for i, c in enumerate(self.clusters)}
             self.idx_to_cluster = {i: c for i, c in enumerate(self.clusters)}
             self.num_cluster_classes = len(self.clusters)
@@ -110,6 +130,7 @@ class BaseDataset(Dataset):
         """Get all cluster labels for computing class weights (multi-task only)"""
         if not self.multi_task:
             raise ValueError("Cluster labels only available in multi-task mode")
+        # Note: cluster -1 items are already filtered out in __init__
         return [self.cluster_to_idx[item.get('cluster', 0)] for item in self.data]
     
     def get_device_labels(self) -> List[int]:
@@ -416,7 +437,9 @@ class URLDataset(BaseDataset):
         # Get labels
         if self.multi_task:
             decade_label = self.label_to_idx[item['decade']]
-            cluster_label = self.cluster_to_idx[item.get('cluster', 0)]
+            cluster = item.get('cluster', 0)
+            # Note: cluster -1 items are already filtered out in __init__
+            cluster_label = self.cluster_to_idx[cluster]
             
             # Get device label
             classification = item.get('classification', 'unknown').lower()
@@ -515,7 +538,9 @@ class CachedDataset(BaseDataset):
         # Get labels
         if self.multi_task:
             decade_label = self.label_to_idx[item['decade']]
-            cluster_label = self.cluster_to_idx[item.get('cluster', 0)]
+            cluster = item.get('cluster', 0)
+            # Note: cluster -1 items are already filtered out in __init__
+            cluster_label = self.cluster_to_idx[cluster]
             
             # Get device label
             classification = item.get('classification', 'unknown').lower()
