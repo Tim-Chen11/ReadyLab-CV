@@ -1,5 +1,14 @@
+import sys
+from pathlib import Path
+
+# Add the project root to the Python path
+project_root = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 from typing import List
 from gql import Client
+import pandas as pd
+from collections import Counter
 from src.datacollection.design_object_model import DesignObject
 from src.datacollection.fetch_cooper_hewitt import create_client, fetch_design_objects
 
@@ -74,9 +83,6 @@ def fetch_from_1stdibs() -> int:
     }
 
 
-import pandas as pd
-from pathlib import Path
-from collections import Counter
 
 def count_classifications_from_xlsx(file_paths: list[Path]):
     # Load and combine data from all files
@@ -117,17 +123,21 @@ def combine_xlsx_files_to_fetch_all(file_paths: list[Path], drop_duplicates: boo
 
     # Save
     combined_df.to_excel(output_path, index=False)
-    print(f"✅ Combined and saved to: {output_path}")
-    print(f"🧮 Total rows: {len(combined_df)}")
+    print(f"Combined and saved to: {output_path}")
+    print(f"Total rows: {len(combined_df)}")
 
     return combined_df
 
 
 if __name__ == "__main__":
+    # Use absolute paths from project root
+    metadata_dir = project_root / "data" / "metadata"
+    
     combine_xlsx_files_to_fetch_all([
-        Path("../../data/metadata/fetch_MoMA.xlsx"),
-        Path("../../data/metadata/fetch_cooper_hewitt.xlsx"),
-        Path("../../data/metadata/mobile_phone_museum_data.xlsx"),
+        metadata_dir / "fetch_MoMA.xlsx",
+        metadata_dir / "fetch_cooper_hewitt.xlsx", 
+        metadata_dir / "mobile_phone_museum_data.xlsx",
+        metadata_dir / "datamath_calculators.xlsx",
     ])
 
 
