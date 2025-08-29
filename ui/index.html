@@ -538,7 +538,7 @@
                 
                 // Filter by cluster and decade
                 similarImages = findSimilarImages(predictedCluster, predictedDecade);
-                sectionTitle = `Similar Images from ${predictedDecade}, Cluster ${predictedCluster}:`;
+                sectionTitle = `Similar Images from ${predictedDecade}:`;
                 
                 console.log(`Similar images found: ${similarImages.length}`);
                 
@@ -560,7 +560,7 @@
                                         </div>
                                         <p style="font-size: 0.8em; margin-top: 5px; color: #666;">
                                             ${img.name || 'Unknown'}<br>
-                                            <span style="color: #667eea;">${img.decade || 'Unknown decade'} - Cluster ${img.cluster}</span><br>
+                                            <span style="color: #667eea;">${img.decade || 'Unknown decade'}</span><br>
                                             <span style="color: #28a745; font-weight: bold;">
                                                 ${img.classification ? img.classification.toUpperCase() : 'Unknown device'}
                                             </span>
