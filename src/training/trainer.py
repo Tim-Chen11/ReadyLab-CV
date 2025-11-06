@@ -12,7 +12,7 @@ from typing import Dict, Tuple, Optional, List, Union
 from sklearn.metrics import confusion_matrix, classification_report
 
 from .losses import get_loss_function
-from .metrics import MetricTracker
+from .metrics import MetricTracker, calculate_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +341,86 @@ class Trainer:
             labels_np = np.array(all_labels)
 
         metrics = metric_tracker.get_averages()
+        
+        # Calculate detailed classification metrics (precision, recall, F1) for each task
+        if self.multi_task:
+            # Calculate metrics for each task
+            tasks_to_process = []
+            if len(predictions.get('decade', [])) > 0:
+                tasks_to_process.append('decade')
+            if len(predictions.get('cluster', [])) > 0:
+                tasks_to_process.append('cluster')
+            if len(predictions.get('device', [])) > 0:
+                tasks_to_process.append('device')
+            
+            for task in tasks_to_process:
+                if len(labels_np[task]) > 0:  # Only process if we have data
+                    # Determine number of classes for this task
+                    if task == 'decade':
+                        num_classes = self.config.get('num_decade_classes', 5)
+                        class_names = ['1960s', '1970s', '1980s', '1990s', '2000s'][:num_classes]
+                    elif task == 'cluster':
+                        num_classes = self.config.get('num_cluster_classes', 10)
+                        class_names = [f'cluster_{i}' for i in range(num_classes)]
+                    elif task == 'device':
+                        num_classes = self.config.get('num_device_classes', 2)
+                        class_names = ['non_device', 'device']
+                    else:
+                        continue
+                    
+                    # Calculate detailed metrics for this task
+                    # Adjust class names based on what's actually in the data
+                    unique_classes = np.unique(np.concatenate([labels_np[task], predictions[task]]))
+                    actual_class_names = None
+                    if class_names:
+                        # Only use class names for classes that exist in the data
+                        actual_class_names = [class_names[i] for i in unique_classes if i < len(class_names)]
+                    
+                    task_metrics = calculate_metrics(
+                        labels_np[task],
+                        predictions[task],
+                        num_classes=len(unique_classes),
+                        class_names=actual_class_names
+                    )
+                    
+                    # Add task-specific metrics to the main metrics dict
+                    for metric_name, value in task_metrics.items():
+                        if metric_name != 'confusion_matrix' and metric_name != 'classification_report':
+                            # Prefix with task name for clarity
+                            if not metric_name.startswith(task):
+                                # For overall metrics like precision, recall, f1
+                                if metric_name in ['accuracy', 'macro_precision', 'macro_recall', 'macro_f1',
+                                                  'weighted_precision', 'weighted_recall', 'weighted_f1', 'cohen_kappa']:
+                                    metrics[f'{task}_{metric_name}'] = value
+                                else:
+                                    # For per-class metrics, they already have class names
+                                    metrics[f'{task}_{metric_name}'] = value
+                            else:
+                                metrics[metric_name] = value
+        else:
+            # Single-task: calculate detailed metrics for decade classification
+            if len(labels_np) > 0:
+                num_classes = self.config.get('num_classes', 5)
+                class_names = ['1960s', '1970s', '1980s', '1990s', '2000s'][:num_classes]
+                
+                # Adjust class names based on what's actually in the data
+                unique_classes = np.unique(np.concatenate([labels_np, predictions]))
+                actual_class_names = None
+                if class_names:
+                    # Only use class names for classes that exist in the data
+                    actual_class_names = [class_names[i] for i in unique_classes if i < len(class_names)]
+                
+                detailed_metrics = calculate_metrics(
+                    labels_np,
+                    predictions,
+                    num_classes=len(unique_classes),
+                    class_names=actual_class_names
+                )
+                
+                # Add all detailed metrics to the main metrics dict
+                for metric_name, value in detailed_metrics.items():
+                    if metric_name != 'confusion_matrix' and metric_name != 'classification_report':
+                        metrics[metric_name] = value
         
         return metrics, predictions, labels_np
 
