@@ -105,10 +105,9 @@ class MultiTaskModel(nn.Module):
         self.backbone = backbone
         
         # Get the number of features from the backbone
-        # This works for most timm models
-        if hasattr(backbone, 'num_features'):
-            in_features = backbone.num_features
-        elif hasattr(backbone, 'classifier'):
+        # Prioritize classifier.in_features over num_features for accuracy
+        # (MobileNetV3 has num_features=576 but actually outputs 1024)
+        if hasattr(backbone, 'classifier'):
             if isinstance(backbone.classifier, nn.Linear):
                 in_features = backbone.classifier.in_features
             else:
@@ -120,12 +119,34 @@ class MultiTaskModel(nn.Module):
                         break
                 if in_features is None:
                     raise ValueError("Could not determine backbone output features")
+        elif hasattr(backbone, 'head'):
+            # Handle different types of head structures
+            if isinstance(backbone.head, nn.Linear):
+                # For models like ViT with simple Linear head
+                in_features = backbone.head.in_features
+            elif hasattr(backbone.head, 'fc') and isinstance(backbone.head.fc, nn.Linear):
+                # For models like ConvNeXt with head.fc structure
+                in_features = backbone.head.fc.in_features
+            else:
+                raise ValueError("Could not determine backbone output features from head")
+        elif hasattr(backbone, 'num_features'):
+            in_features = backbone.num_features
         else:
             raise ValueError("Could not determine backbone output features")
         
         # Replace the classifier with identity to get features
         if hasattr(backbone, 'classifier'):
             backbone.classifier = nn.Identity()
+        elif hasattr(backbone, 'head'):
+            if isinstance(backbone.head, nn.Linear):
+                # For models like ViT with simple Linear head
+                backbone.head = nn.Identity()
+            elif hasattr(backbone.head, 'fc'):
+                # For models like ConvNeXt, replace just the final fc layer in the head
+                backbone.head.fc = nn.Identity()
+            else:
+                # For other complex head structures, replace the entire head
+                backbone.head = nn.Identity()
         elif hasattr(backbone, 'fc'):
             backbone.fc = nn.Identity()
         else:
